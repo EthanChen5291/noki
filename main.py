@@ -15,6 +15,8 @@ player_rect = player_img.get_rect(center=(450, 300))
 speed = 5
 running = True
 
+# keyboard mapping -> move to input.py 
+# random generation of words?
 while running:
     clock.tick(60)
 

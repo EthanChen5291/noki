@@ -4,9 +4,12 @@ import random
 class RhythmManager(words : list[str], bpm : int):
     beat_dur = 60 / bpm
     RHYTHM_MULTIPLIERS = [list: 1, 2] # multiplies with sliced beat. Looking to expand. should I add 0?
+    GRACE_PERIOD = 80 
+
 
     for word in words:
         beats = len(word) # a beat on each char
+        already_pressed_on_beat = False
         cur_beat_duration = get_beat_duration(beats, beat_dur)
         total_duration = total_beats * cur_beat_duration
         # add some if statements to check how fast bpm is -> if past a certain checkpoint, 
@@ -31,7 +34,7 @@ class RhythmManager(words : list[str], bpm : int):
 
         total_beat_dur = (beat_duration) * multiplier
         sliced_beat_dur = total_beat_dur / l # sliced beat duration
-        total_beats_for_word = total_beat_dur / sliced_bear_dur 
+        return sliced_beat_dur
 
 
     def is_on_beat(sliced_beat_dur, total_beats) -> Boolean:
@@ -39,16 +42,20 @@ class RhythmManager(words : list[str], bpm : int):
         Checks if it's on beat. ADD 80ms grace period
         """
 
-        current_beat = time.perf_counter()
-        next_beat = sliced_beat_dur
+        curr_beat = time.perf_counter()
+        next_beat = sliced_beat_dur * 1000 # ms
         timer = time.perf_counter()
 
-        delta = timer - current_beat
-        while !(delta == sliced_beat_dur): #edit this to accomodate grace period
-            True
-        else:
-            time.sleep(0.001)
-            False
+        delta = (timer - curr_beat) * 1000
+        if !(already_pressed_on_beat):
+            if delta > (sliced_beat_dur - 80) and delta < (sliced_beat_dur + 80): #edit this to accommodate grace period
+                already_pressed_on_beat = true
+                True
+            else:
+                already_pressed_on_beat = false
+                # time.sleep(0.001) prob remove
+                False
+
 
 
 
