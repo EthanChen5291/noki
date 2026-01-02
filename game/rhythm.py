@@ -1,7 +1,7 @@
 import time
 import random
 
-# adds something that takes account of the total chars
+# ALGORITHM SHOULD: shuffle word_bank, then pull from word bank until song ends
 # if too many, DO SOMETHING -> but for now just say invalid wordlist
 
 class RhythmManager:
@@ -12,7 +12,8 @@ class RhythmManager:
         self.bpm = bpm
         self.song_secs = song_secs
         
-        self.beat_dur = 60 / bpm
+        RANDOM_TEST_CONSTANT = 3
+        self.beat_dur = get_bpm_multiplier(self.bpm) * (60 / bpm) * RANDOM_TEST_CONSTANT
         self.start_time = time.perf_counter()
 
         self.current_word_index = 0
@@ -40,11 +41,9 @@ class RhythmManager:
             self._advance_word()
             return
 
-        multiplier = get_multiplier(self.num_chars)
-        # MAKE A FUNCTION get_multiplier(self.num_chars) USED HERE that manages 'multiplier' 
-        # based off of how many chars there are 
+        word_multiplier = get_word_multiplier(self.num_chars)
 
-        word_duration = self.beat_dur * multiplier
+        word_duration = self.beat_dur * word_multiplier
 
         self.current_char_dur = word_duration / self.num_chars
         self.current_char_index = 0
@@ -60,6 +59,10 @@ class RhythmManager:
         if self.current_char_dur is None:
             return
         
+        if time.perf_counter() - self.start_time >= self.song_secs:
+            print("Level Finished!")
+            return
+
         now = time.perf_counter()
         elapsed = now - self.char_start_time
 
@@ -98,7 +101,7 @@ class RhythmManager:
         
         return self.words[self.current_word_index]
 
-def get_multiplier(num_chars: int) -> int: # why is this indented outside of rhythmmanager
+def get_word_multiplier(num_chars: int) -> int: # provides a multiplier for each word depending on len
     if num_chars <= 4:
         return 1
     elif num_chars <= 8:
@@ -106,11 +109,11 @@ def get_multiplier(num_chars: int) -> int: # why is this indented outside of rhy
     else:
         return 3
 
-# figure out char_length of word
-# determine beats for that beat (beat_duration split by char_length)
-# # flash beat for those beats
-
-##### LOOK TO ADD
-#while elapsed >= self.current_char_dur:
-#    self.current_char_index += 1
-#    self.char_start_time += self.current_char_dur
+def get_bpm_multiplier(bpm: int) -> int: # provides a multiplier for the full word list depending on bpm.
+# will be generally true but a bit eh if it's slow bpm + fast notes
+    if bpm <= 90:
+        return 1.25
+    if bpm <= 120:
+        return 1
+    if bpm <= 150:
+        return 0.85 # need to look into these multipliers to prevent magic numbers
