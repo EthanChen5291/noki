@@ -3,16 +3,19 @@ import sys
 
 pygame.init()
 
+# PRIORITIES
+# - match word list to accomodate song length
+# - MAX CUSTOMIZABILITY -> allow users to upload their own songs -> 
+# will have to decide how many chars (words per song
+
+# MAX CUSTOMIZABILITY 2 -> allow users to upload their own words.
+
 SCREEN_WIDTH = 900
 SCREEN_HEIGHT = 600
 
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 clock = pygame.time.Clock()
 
-player_img = pygame.image.load("assets/images/player.png").convert_alpha()
-player_rect = player_img.get_rect(center=(450, 300))
-
-speed = 5
 running = True
 
 # keyboard mapping -> move to input.py 
@@ -35,7 +38,6 @@ while running:
         player_rect.y += speed
 
     screen.fill((0, 0, 0))
-    screen.blit(player_img, player_rect)
     pygame.display.flip()
 
 pygame.quit()

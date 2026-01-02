@@ -1,36 +1,41 @@
 # noki
 
+![alt text](0000.png)
 
 ### ==== BRAINSTORMING ==== ###
 
-current 'typing games'?
-current 'rhythm games'?
+# allows user customizability in designing levels/music (custom word bank per level, custom music)
+# algorithm that maps words to bpm in a ergonomically satisfying way
 
-- NICHE: seeks to appeal to both musicians, keyboard enthusiasts, and rhythm gamers. friendly to beginners but also open to pros.
-- introducing the keyboard rather than arrow keys introduces a higher complexity, but it gives us more lee-way to design fun, ergonomically-satisfying levels. more creative liberty.
-- satisfying, home-made UI
-- CONVENIENCE: as an audio designer and developer myself, I'll be able to compose music and sync music directly to gameplay to compliment the engine.
-- aidan is the artist. check out his instagram @bokuart
+APPEAL/sell to user
+# 6 default progression levels, each level with a specific word bank (music finished) to demonstrate 
+# Journey, Classic, Master modes. Visualizer: (counted as checkmark on level (Journey accomplished), star (Classic accomplished), and cat crown (Master mode accomplished))
 
-- WORDS -> what are they typing? take advantage:
-- poems on 'deep' songs. comedy on 'fun' songs. simple sentences for 'learning' songs.
+MAIN ALGORITHM
+# custom levels -> should be VERY LITTLE work for user to make levels (lessons)
+# show popular song library? should every song have a min/max duration (add an "optimize" option)
 
-- UNIQUE STANDPOINT
-- have a story, with the user being able to choose between typing multiple preset messages e.g "I forgive you" / "I despise you" (both of which are synced up to the song) that could lead to different outcomes in the story of the game as well as POSSIBLY affect the song outcome too. BREAKING THE THIRD DIMENSION by being a more unique story-driven game.
-- show letters falling down from the top or rolling from right to left?
-  
-(instead of a piano on the bottom, there is a keyboard) 
+# figure out optimal char/song_len ratio for JOURNEY, CLASSIC, and MASTER modes
 
-- same mechanics as falling tiles, but since there's multiple layers, I'll typically avoid having multiple keys come down at once within proximity of each other to reduce viewing confusion.
-- one pro with this is that there is no pressure to keep keys constant - the key 'C' can represent one note in one song and another in another song and it'd still help with typing.
-- for more viewing convenience, I'll have the key on the keyboard to be played gradually become more highlighted over time as the note tile travels down
-- "what happens if the user plays a certain key outside of when it's supposed to be played?" -> maps to a random note used within the song
-- IMPACT: good way to help typing on keyboard - DUEL MODE -> only one area of keyboard, using mouse too to DO SOMETHING with mouse (kinda like waltz with keyboard as piano and mouse as violin)
-- even a direct fighting mode (like making cutting slashes with mouse and it's like a waltz fighting a boss)?
+FUTURE
+# have an AI that can:
+# 1. add X words to word bank by finding similar words in DIFFICULTY and CHARS_USED
+# 2. add X words to word bank by finding similar words in DIFFICULTY but covering the less covered chars
+# 3. cut X words from word bank that are cover chars that are too similar 
 
+ART
+#### style: constant brush thickness (no pressure sensor), simplistic with smooth animation 
+# art ref: check out friday night funkin
 
+# cat shaking head animation (loop)
 
-=== 
-falling-note visualization, input mapping, timing accuracy, and real-time rendering
+# THREE cat emote animations for CORRECT notes (happy) 
+#      -> VERY QUICK -> should return back to cat shaking head
 
-FIND BETTER MORE CREATIVE NAME
+# THREE cat emote animations for INCORRECT notes (sad)
+#      -> VERY QUICK -> should return back to cat shaking head
+
+# speakers booming animation (loop)
+# floating music notes coming out of speakers
+
+# 6 BACKGROUNDS, one for each song (very simple ones!)
