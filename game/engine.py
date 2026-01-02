@@ -34,8 +34,11 @@ class Game:
         self.running = False
         self.last_char_idx = -1
         self.used_current_char = False
+
         self.score = 0
         self.misses = 0
+
+        self.font = pygame.font.Font(None, 48)
         
         self.message = None
         self.message_duration = 0.0
@@ -55,33 +58,49 @@ class Game:
         self.running = True
         while self.running:
             dt = self.clock.tick(60) / 1000
-            self.screen.fill((0, 0, 0))
 
             self.handle_events()
-            self.update()
+            self.update(dt)
 
             pygame.display.flip()
 
         pygame.quit()
         sys.exit()
 
-    def handle_events(self) -> None:
-        for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    self.running = False
+# --- HANDLE EVENTS
 
+    def handle_events(self) -> None:
+        pass
         # RENOVATE INTO HELPER FUNCTIONS
-    def update(self) -> None:
+
+# --- UPDATE
+
+    def update(self, dt: float) -> None:
         self.screen.fill((0, 0, 0))
 
         self.rhythm.update()
 
+        if self.message is not None and self.message_duration >= 0.0:
+            self.draw_text(self.message, False)
+            self.message_duration -= dt # need to fix, magical num
+
         if self.rhythm.current_expected_char() is None:
-            self.draw_text("Congratulations!", False)
+            self.show_message("Congratulations!", 5)
+            # self.draw_text("Congratulations!", False)
             self.running = False
             return
 
-        self.input.update()
+# experimental
+
+        events = pygame.event.get()
+
+        for event in events:
+                if event.type == pygame.QUIT:
+                    self.running = False
+
+        self.input.update(events=events)
+
+        # experiment ----
         typed = self.input.typed_chars
 
         current_char_idx = self.rhythm.current_char_index
@@ -89,14 +108,22 @@ class Game:
         if current_char_idx != self.last_char_idx:
             if not self.used_current_char and self.last_char_idx != -1:
                 self.misses += 1
-                self.draw_text("Missed!", False)
+                self.show_message("Missed!", 2)
+                #self.draw_text("Missed!", False)
         
             self.used_current_char = False
             self.last_char_idx = current_char_idx
              
         # NEED TO ADD LIVES VAR. ON LIVE LOST, SAY "You Lost a Life.". ON NO LIVES, END GAME 
             #NEED TO MAKE IT TIME DRIVEN AND ORGANIZE ROLES BETWEEN ENGINE AND RHYTHMMANAGER
+        #print(
+        #    f"IDX={current_char_idx}",
+        #    f"offset={time.perf_counter() - self.rhythm.char_start_time:.3f}",
+        #    f"dur={self.rhythm.current_char_dur:.3f}",
+        #    f"on_beat={self.rhythm.on_beat()}"
+        #)
 
+        print("CHAR: " + str(current_char_idx))
         if typed:
              for key in typed:
                 if self.used_current_char:
@@ -107,23 +134,47 @@ class Game:
                     break
 
                 if key == expected and self.rhythm.on_beat():
-                    self.draw_text("Awesome!", False)
+                    self.show_message("Awesome!", 2)
+                    #self.draw_text("Awesome!", False)
                     self.score += 1
                     self.last_char_idx = current_char_idx
                 else:
-                     self.draw_text("Yikes!", False)
+                     self.show_message("Yikes!", 2)
                      self.misses += 1
                 
+                print("HIT:", key, "expected:", expected)
                 self.used_current_char = True
         
-        self.draw_text(self.rhythm.current_expected_word(), True)
+        self.draw_curr_word(self.rhythm.current_expected_word())
+
+    # --- TEXT
+
+    def show_message(self, txt : str, secs : int):
+        self.message = txt
+        self.message_duration = secs
 
     def draw_text(self, txt : str, left : bool): # white text
-        font = pygame.font.Font(None, 48)
-        text_surface = font.render(txt, True, (255, 255, 255))
+        text_surface = self.font.render(txt, True, (255, 255, 255))
         if left:
-            self.screen.blit(text_surface, (100, 100))
+            self.screen.blit(text_surface, (100,100))
         else:
-            self.screen.blit(text_surface, (300, 100))
+            self.screen.blit(text_surface, (400, 100))
+
+    #def draw_text(self, txt : str, color : tuple, pos : tuple): # white text
+    #    text_surface = self.font.render(txt, True, color)
+    #   self.screen.blit(text_surface, pos)
+    
+    def draw_miss_message(self): # white text
+        self.draw_text("Missed.", (255, 0, 0), (100, 100))
+    
+    def draw_success_message(self): # white text
+        self.draw_text("Awesome!", (0, 255, 35), (200, 100))
+    
+    #def draw_curr_word(self, txt : str):
+    #    self.draw_text(txt, (255, 255, 255), (450, 400))
+
+    def draw_curr_word(self, txt : str):
+        self.draw_text(txt, True)
+
 
     

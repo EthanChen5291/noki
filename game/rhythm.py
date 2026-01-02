@@ -5,7 +5,7 @@ import random
 # if too many, DO SOMETHING -> but for now just say invalid wordlist
 
 class RhythmManager:
-    GRACE = 0.08 
+    GRACE = 1.0
 
     def __init__(self, words : list[str], bpm : int, song_secs : int):
         self.words = words
@@ -68,21 +68,24 @@ class RhythmManager:
 
         if elapsed >= self.current_char_dur:
             self.current_char_index += 1
-            self.char_start_time = now
+            self.char_start_time += self.current_char_dur
+            elapsed -= self.current_char_dur
         
         if self.current_char_index >= self.num_chars:
             self._advance_word()
         
     def on_beat(self) -> bool:
-        if self.char_start_time is None:
+        if self.char_start_time is None or self.current_char_dur is None:
             return False
 
         now = time.perf_counter()
-        offset = now - self.char_start_time
+        elapsed = now - self.char_start_time
+        
+        beat_moment = self.current_char_dur / 2
 
-        distance = min(offset, self.current_char_dur - offset)
+        distance_from_beat = abs(elapsed - beat_moment)
 
-        return distance <= self.GRACE
+        return distance_from_beat <= self.GRACE
     
     def current_expected_char(self) -> str | None:
         if self.current_word_index >= len(self.words):

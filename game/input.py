@@ -6,12 +6,12 @@ class Input:
         self.enter = False
         self.backspace = False
 
-    def update(self):
+    def update(self, events):
         self.enter = False
         self.backspace = False
         self.typed_chars.clear()
 
-        for event in pygame.event.get():
+        for event in events:
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_BACKSPACE:
                     self.backspace = True
