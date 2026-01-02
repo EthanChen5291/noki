@@ -27,6 +27,8 @@ class RhythmManager:
 
     def _setup_word(self):
         if self.current_word_index >= len(self.words):
+            self.current_char_dur = None
+            self.char_start_time = None
             return
         
         word = self.words[self.current_word_index]
@@ -38,7 +40,7 @@ class RhythmManager:
             self._advance_word()
             return
 
-        multiplier = random.choice([1, 2])
+        multiplier = get_multiplier(self.num_chars)
         # MAKE A FUNCTION get_multiplier(self.num_chars) USED HERE that manages 'multiplier' 
         # based off of how many chars there are 
 
@@ -78,7 +80,37 @@ class RhythmManager:
         distance = min(offset, self.current_char_dur - offset)
 
         return distance <= self.GRACE
+    
+    def current_expected_char(self) -> str | None:
+        if self.current_word_index >= len(self.words):
+            return None
+
+        word = self.words[self.current_word_index]
+
+        if self.current_char_index >= len(word):
+            return None
+        
+        return word[self.current_char_index]
+    
+    def current_expected_word(self) -> str | None:
+        if self.current_word_index >= len(self.words):
+            return None
+        
+        return self.words[self.current_word_index]
+
+def get_multiplier(num_chars: int) -> int: # why is this indented outside of rhythmmanager
+    if num_chars <= 4:
+        return 1
+    elif num_chars <= 8:
+        return 2
+    else:
+        return 3
 
 # figure out char_length of word
 # determine beats for that beat (beat_duration split by char_length)
 # # flash beat for those beats
+
+##### LOOK TO ADD
+#while elapsed >= self.current_char_dur:
+#    self.current_char_index += 1
+#    self.char_start_time += self.current_char_dur
