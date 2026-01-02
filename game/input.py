@@ -1,4 +1,3 @@
-# need already_pressed_on_beat boolean so player can't spam during one beat
 import pygame
 
 class Input:

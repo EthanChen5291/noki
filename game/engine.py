@@ -2,13 +2,14 @@ import pygame
 import sys
 import time
 
-from game.rhythm import RhythmManager
-from game.input import Input
+from .rhythm import RhythmManager
+from .input import Input
 
 pygame.init()
 
 # PRIORITIES
 # - match word list to accomodate song length
+
 # - MAX CUSTOMIZABILITY -> allow users to upload their own songs -> 
 # will have to decide how many chars (words per song
 
@@ -35,6 +36,9 @@ class Game:
         self.used_current_char = False
         self.score = 0
         self.misses = 0
+        
+        self.message = None
+        self.message_duration = 0.0
 
         self.level = level
         self.song = level.song
@@ -73,7 +77,7 @@ class Game:
         self.rhythm.update()
 
         if self.rhythm.current_expected_char() is None:
-            print("Congratulations!")
+            self.draw_text("Congratulations!", False)
             self.running = False
             return
 
@@ -85,7 +89,7 @@ class Game:
         if current_char_idx != self.last_char_idx:
             if not self.used_current_char and self.last_char_idx != -1:
                 self.misses += 1
-                print("Missed!")
+                self.draw_text("Missed!", False)
         
             self.used_current_char = False
             self.last_char_idx = current_char_idx
@@ -103,13 +107,23 @@ class Game:
                     break
 
                 if key == expected and self.rhythm.on_beat():
-                    print("Awesome!")
+                    self.draw_text("Awesome!", False)
                     self.score += 1
                     self.last_char_idx = current_char_idx
                 else:
-                     print("Yikes!")
+                     self.draw_text("Yikes!", False)
                      self.misses += 1
                 
                 self.used_current_char = True
         
-        print(self.rhythm.current_expected_word())
+        self.draw_text(self.rhythm.current_expected_word(), True)
+
+    def draw_text(self, txt : str, left : bool): # white text
+        font = pygame.font.Font(None, 48)
+        text_surface = font.render(txt, True, (255, 255, 255))
+        if left:
+            self.screen.blit(text_surface, (100, 100))
+        else:
+            self.screen.blit(text_surface, (300, 100))
+
+    
