@@ -8,6 +8,8 @@ class Input:
         self.backspace = False
 
     def update(self):
+        self.enter = False
+        self.backspace = False
         self.typed_chars.clear()
 
         for event in pygame.event.get():
@@ -16,7 +18,7 @@ class Input:
                     self.backspace = True
                 elif event.key == pygame.K_RETURN:
                     self.enter = True
-                elif event.unicode:
+                elif event.unicode and event.unicode.isprintable():
                     self.typed_chars.append(event.unicode)
 
     
