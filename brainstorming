@@ -1,4 +1,5 @@
 RHYTHM ENGINE PART 1 BRAINSTORMING
+
 —
 (algorithm for identifying target_cps?)
 TARGET_CPS = 3.5
@@ -6,6 +7,7 @@ MIN_CPS = 3
 MAX_CPS = 4.5
 
 MIN_BEAT_GAP = 0.25 
+
 —
 Should manipulate these word_pauses (in terms of beats) in terms of varying BPM. for example MAX_WORD_PAUSE for very fast song should be longer than 1.5 beats.
 
@@ -14,6 +16,7 @@ IDEAL_WORD_PAUSE = 1.0
 MAX_WORD_PAUSE = 1.5
 
 Intervals of 0.5 here to stick to eight notes (because 0.5 of a beat is a half beat) for playability since triplets (0.33) are weird and sixteenth notes (0.25) are prob too fast
+
 — 
 
 END_SPARE_BEATS = 2 (all words should finish by roughly two beats before the end of the song)
@@ -47,6 +50,7 @@ Total_time_typing = song_duration - word_pause_durations. We do MAX_WORD_PAUSE t
 What if it’s like, 50 one-letter words? Then lots of pauses and minimum typing length. So then if we cut pauses then we end up finishing much before the song ends. This is okay however as we can check if this happens (round(revised_word_pause_durations + total_time_typing) <= song_duration - (END_SPARE_BEATS * beat_duration)) AFTER and then just add repeated words until boolean is true
 What if it’s like one 50 letter word? Then, no pauses so overestimating word pauses does nothing -> results in matched song
 
+
 MIGHT NOT NEED CPS CHECK IN BEGINNING MENTIONED ABOVE, but still prefer to have cps check in the end 
 
 
@@ -58,16 +62,47 @@ How to decide uniform char_beats that is within CPS?
 Currently im trying to figure out CPS but i dont have chars mapped yet
 
 do get_total_song_beats() which does song_duration / beat_duration. 
-In this case, usable_song_beats is total_song_beats - END_SPARE_BEATS - WORD_PAUSE_BEATS.
+In this case, usable_song_beats is 
+
+total_song_beats - END_SPARE_BEATS - word_pause_beats 
+
+where
+:
+ word_pause_beats = (len(word_list) - 1) * word_pause_beat_duration
+
 We take usable_song_beats. Check BPM here: First, check validity before assigning:
-chars_per_usable_beat = total_num_chars / usable_song_beats 
-chars_per_usable_sec = chars_per_usable_beat * beat_duration 
-CHECK if chars_per_usable_sec is within CPS range (MIN_CPS <= chars_per_usable_sec <= MAX_CPS) <- we should design this so that this happens almost all the time. If true, 
-We have total_num_chars, usable_song_beats, chars_per_usable_beat, and word_pause_beat_durations. Since we verified chars_per_usable_sec is within our CPS range, we create a rough beat map using the beat counterparts ->
 
-create_beat_map(usable_song_beats, word_pause_beat_durations : list[word_pause_beat_duration], chars_per_usable_beat) -> creates a very uniform beat_map
+usable_duration_sec = usable_song_beats * beat_duration
+chars_per_sec = total_num_chars / usable_duration_sec
 
-Can we use stuff like mapreduce to make this run quicker?
+CHECK if chars_per_sec is within CPS range (MIN_CPS <= chars_per_sec <= MAX_CPS) <- we should design this so that this happens almost all the time. If true, 
+
+secs_per_char =  1 / chars_per_sec
+beats_per_char = chars_per_sec / beat_duration
+
+We have word_list, beats_per_char, and word_pause_beat_durations. Since we verified chars_per_usable_sec is within our CPS range, we create a rough beat map using the beat counterparts ->
+
+create_beat_map(word_list : list[str], word_pause_beat_duration : int, beats_per_char) -> creates a very uniform beat_map list[tuple[char, beat]] with constant char_beat_durations (no rhythm) and constant word_pause_beat_durations, but works.
+
+beat_map = []
+curr_beat = 0
+
+for word in word_list:
+for char in list(word):
+beat_map.append((char, curr_beat)
+curr_beat += usable_beats_per_char
+beat_map.append((None, curr_beat))
+curr_beat += word_pause_beat_duration
+return beat_map
+
+FINISHED HERE 1/4/26. WORKING TOMORROW PAST THIS POINT
+
+
+
+
+LATER, WE CHECK IF CURR_BEAT <= total_song_beats once we’re creating/revising the final beatmap. If true, we do something
+
+What to do if (MIN_CPS <= chars_per_usable_sec <= MAX_CPS) is false?
 
 Here, since chars_per_usable_sec is within our CPS range, we can do chars_per_usable_sec * usable_song_secs 
 Should we think in secs or beats here?
@@ -82,7 +117,7 @@ We’re trying to speed things up. look for the closest earlier beat at every si
 AFTER THIS, should we do an outlier check to see if any words happen particularly fast?
 
 AFTER OPTIMIZING CS (just typing period), we optimize to song length via the pauses.
-ABSTRACTLY: target_cps_diff * song_duration = char_diff (all the missing/extra characters in the song). If we do char_diff * usable_secs_per_char, we get secs_diff. Then, we take note of sec_diff when optimizing by tempering with word_pause times -> we simply shrink the word_pause times WAIT PAUSE TIMES DONT CHANGE CPS.
+ABSTRACTLY: target_cps_diff * song_duration = char_diff (all the missing/extra characters in the song). If we do char_diff * usable_secs_per_char, we get secs_diff. Then, we take note of sec_diff when optimizing by tempering with word_pause times -> we simply shrink the word_pause times WiAIT PAUSE TIMES DONT CHANGE CPS.
 HERE, optimization function will try to get the CPS as close to target CPS as possible by tempering with the word_pause times to prevent a range of cps times. A new list will be created via function repeat(word_pause_time, num_times). 
 Later, another optimization function will try to optimize something else, (the difference is that optimization 1 considers just usable_beats (no pauses) while optimization 2 optimizes considering all total_beats (pauses included), considering full song length
 
@@ -103,16 +138,7 @@ CHECK: have a function that checks cps at every beat of the song to get rid of o
 
 get_beat_durations(num_chars, bpm, song_secs, pause_secs) -> list[tuple[str, str]])  which calculates the average beat_durations of 
 
-
-
-
-
-
-
-
-
-
-
+Can we use stuff like mapreduce to make this run quicker?
 
 
 
