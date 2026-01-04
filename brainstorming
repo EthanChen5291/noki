@@ -1,0 +1,127 @@
+RHYTHM ENGINE PART 1 BRAINSTORMING
+—
+(algorithm for identifying target_cps?)
+TARGET_CPS = 3.5
+MIN_CPS = 3
+MAX_CPS = 4.5
+
+MIN_BEAT_GAP = 0.25 
+—
+Should manipulate these word_pauses (in terms of beats) in terms of varying BPM. for example MAX_WORD_PAUSE for very fast song should be longer than 1.5 beats.
+
+MIN_WORD_PAUSE = 0.5
+IDEAL_WORD_PAUSE = 1.0
+MAX_WORD_PAUSE = 1.5
+
+Intervals of 0.5 here to stick to eight notes (because 0.5 of a beat is a half beat) for playability since triplets (0.33) are weird and sixteenth notes (0.25) are prob too fast
+— 
+
+END_SPARE_BEATS = 2 (all words should finish by roughly two beats before the end of the song)
+
+__
+
+List[str], song_duration, bpm -> list[tuple[char, beat]]
+
+FIND WORD DURATIONS
+
+Total chars = length of all strings
+For word in words:
+l += len(word)
+
+CPS
+Chars
+
+get_CPS(word_list, song_duration, bpm) -> uses built-in CPS AND IDEAL_WORD_PAUSE limits to estimate current CPS.
+gets num_chars of word_list. 
+Takes avg word_pauses IDEAL_WORD_PAUSE and multiplies it by num_words - 1 (all the gaps between words). -> this returns “estimated” total time during gaps
+
+Get duration of typing (num_chars) by getting beat_duration. Think in rhythm notes:
+Call FUNCTION get_beat_duration(num_chars, bpm, song_secs, pause_secs)
+get_avg_beat_duration(num_chars, bpm, song_secs, pause_secs) -> list[tuple[str, str]])  which calculates the average beat_durations of 
+
+IDEA HERE: calculate CPS/playability of average case, then vary the word_pauses/speed that sticks to roughly the average case.
+concern: if we stick to average, there will be some deviation because:
+to be more natural, there must be more variation. However, the more variation from average case, the more likely the cps may grow above average and the song/word_list doesn’t line up anymore. get_CPS then becomes useless -> 
+Possibly just use get_cps as a ROUGH signal and add some checks later on, OR, center get_CPS around 125% of the average by overestimating word_pause_durations (MAX_WORD_PAUSE * (num_words - 1) * beat_duration) and then cutting out word_pause durations throughout to get closer to 100% of the average
+Total_time_typing = song_duration - word_pause_durations. We do MAX_WORD_PAUSE to get the fastest possible CPS for that song, and then eventually cut down the word pauses throughout to ensure we don’t go over song length. 
+What if it’s like, 50 one-letter words? Then lots of pauses and minimum typing length. So then if we cut pauses then we end up finishing much before the song ends. This is okay however as we can check if this happens (round(revised_word_pause_durations + total_time_typing) <= song_duration - (END_SPARE_BEATS * beat_duration)) AFTER and then just add repeated words until boolean is true
+What if it’s like one 50 letter word? Then, no pauses so overestimating word pauses does nothing -> results in matched song
+
+MIGHT NOT NEED CPS CHECK IN BEGINNING MENTIONED ABOVE, but still prefer to have cps check in the end 
+
+
+
+CURRENT TENTATIVE METHOD
+
+How to decide uniform char_beats that is within CPS?
+
+Currently im trying to figure out CPS but i dont have chars mapped yet
+
+do get_total_song_beats() which does song_duration / beat_duration. 
+In this case, usable_song_beats is total_song_beats - END_SPARE_BEATS - WORD_PAUSE_BEATS.
+We take usable_song_beats. Check BPM here: First, check validity before assigning:
+chars_per_usable_beat = total_num_chars / usable_song_beats 
+chars_per_usable_sec = chars_per_usable_beat * beat_duration 
+CHECK if chars_per_usable_sec is within CPS range (MIN_CPS <= chars_per_usable_sec <= MAX_CPS) <- we should design this so that this happens almost all the time. If true, 
+We have total_num_chars, usable_song_beats, chars_per_usable_beat, and word_pause_beat_durations. Since we verified chars_per_usable_sec is within our CPS range, we create a rough beat map using the beat counterparts ->
+
+create_beat_map(usable_song_beats, word_pause_beat_durations : list[word_pause_beat_duration], chars_per_usable_beat) -> creates a very uniform beat_map
+
+Can we use stuff like mapreduce to make this run quicker?
+
+Here, since chars_per_usable_sec is within our CPS range, we can do chars_per_usable_sec * usable_song_secs 
+Should we think in secs or beats here?
+Call a function that converts this to a beat map. 
+
+Check if usable_chars_per_sec != TARGET_CPS. Then, get target_cps_diff = TARGET_CPS - usable_chars_per_sec. We use target_cps_diff to then get the CPS as close to TARGET_CPS as possible. To make it human and natural, we do this not by uniformly making all words happen faster/slower, but by make some words faster/slower for variation
+FIRST, check every sixteenth beat. We should tweak the speed of the words to add variation but ALSO make a word begin on every 16th beat. 
+If target_cps_diff < 0: 
+We’re trying to speed things up. look for the closest earlier beat at every sixteenth note, and map out the distance from the sixteenth beat (we should already have a base beatmap).
+
+
+AFTER THIS, should we do an outlier check to see if any words happen particularly fast?
+
+AFTER OPTIMIZING CS (just typing period), we optimize to song length via the pauses.
+ABSTRACTLY: target_cps_diff * song_duration = char_diff (all the missing/extra characters in the song). If we do char_diff * usable_secs_per_char, we get secs_diff. Then, we take note of sec_diff when optimizing by tempering with word_pause times -> we simply shrink the word_pause times WAIT PAUSE TIMES DONT CHANGE CPS.
+HERE, optimization function will try to get the CPS as close to target CPS as possible by tempering with the word_pause times to prevent a range of cps times. A new list will be created via function repeat(word_pause_time, num_times). 
+Later, another optimization function will try to optimize something else, (the difference is that optimization 1 considers just usable_beats (no pauses) while optimization 2 optimizes considering all total_beats (pauses included), considering full song length
+
+ALGORITHM FOR DETERMINING WORD PAUSES?
+
+Also, for all my songs every 4 measures is a “section”. For example, one melody lasts 4 measures, one harmony lasts 4 measures, etc. In my songs, it’s 4/4 time so 4 measures would be 16 beats. To land on hard beats (since every 4 measures a new section begins), for just our songs we could have a variable that takes account of every multiple of 16 and make sure the nearest word begins on that beat -> THIS IS IMPORTANT AND VERY CRUCIAL AND INTENTIONAL. We cannot consider non 4/4 songs right now as there’s no way to really estimate the time signature from the audio (other than use AI to match it to a song online and search it up) -> it can work but will not be as polished as 4/4 songs because time signatures are weird
+Have the engine find the nearest word to the 16th beat and basically ensure that the word BEGINS on the 16th beat. This has an impact because the new section marks new words.
+
+
+
+TECHNICAL LIMITATIONS:
+Bpm gradual changes
+Time signature constrained to 4/4 (which isn’t that bad but will sound weird for like 9/8 or ⅞)
+Swing songs
+
+CHECK: have a function that checks cps at every beat of the song to get rid of outliers (for example if song’s average cps is safe but the song has one outlier
+
+
+get_beat_durations(num_chars, bpm, song_secs, pause_secs) -> list[tuple[str, str]])  which calculates the average beat_durations of 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+FAR FAR FAR FUTURE: s there a way for pygame to look into the audio file itself and determine strong beats (e.g loud volume, transition from small to loud volume, etc) or any other thing
+Lots of songs that end quickly (dun dun DUM finish) usually end on a loud note. We could identify if it ends quickly with an audio analyzer and then manipulate a boolean “ends_quickly”. If ends_quickly, then reduce the END_SPARE_BEATS (grace period duration for all words to finish at the end of the song)
+
+General pattern_matching -> could have it look at notes? For example if one melody is played, the same pitches are general seen in the audio. This could then identify ABA song patterns 
+
+
+
+
