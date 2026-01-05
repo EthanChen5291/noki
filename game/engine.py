@@ -108,7 +108,7 @@ class Game:
         if current_char_idx != self.last_char_idx:
             if not self.used_current_char and self.last_char_idx != -1:
                 self.misses += 1
-                self.show_message("Missed!", 2)
+                self.draw_text("Missed", False)
                 #self.draw_text("Missed!", False)
         
             self.used_current_char = False
@@ -116,12 +116,12 @@ class Game:
              
         # NEED TO ADD LIVES VAR. ON LIVE LOST, SAY "You Lost a Life.". ON NO LIVES, END GAME 
             #NEED TO MAKE IT TIME DRIVEN AND ORGANIZE ROLES BETWEEN ENGINE AND RHYTHMMANAGER
-        #print(
-        #    f"IDX={current_char_idx}",
-        #    f"offset={time.perf_counter() - self.rhythm.char_start_time:.3f}",
-        #    f"dur={self.rhythm.current_char_dur:.3f}",
-        #    f"on_beat={self.rhythm.on_beat()}"
-        #)
+        print(
+            f"IDX={current_char_idx}",
+            f"offset={time.perf_counter() - self.rhythm.char_start_time:.3f}",
+            f"dur={self.rhythm.current_char_dur:.3f}",
+            f"on_beat={self.rhythm.on_beat()}"
+        )
 
         print("CHAR: " + str(current_char_idx))
         if typed:
@@ -139,7 +139,7 @@ class Game:
                     self.score += 1
                     self.last_char_idx = current_char_idx
                 else:
-                     self.show_message("Yikes!", 2)
+                     self.draw_text("Yikes", False)
                      self.misses += 1
                 
                 print("HIT:", key, "expected:", expected)

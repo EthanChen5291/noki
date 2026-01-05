@@ -1,7 +1,14 @@
 import time
 import random
 
-# ALGORITHM SHOULD: shuffle word_bank, then pull from word bank until song ends
+# ALGORITHM SHOULD: 
+# to do this I think the core rhythm engine should execute in two parts: part 1 which takes in the word list, 
+# song duration, and bpm and exports a satisfying-to-play beat map (list of chars to timestamps). 
+
+# part 2 (our game wrapper) should then take that beat map and load the graphics and input and such. 
+# we can then ensure that the core engine (part 1) can be abstracted and used regardless of input 
+# (typing, combat, shooting, movement)
+
 # if too many, DO SOMETHING -> but for now just say invalid wordlist
 
 class RhythmManager:
@@ -80,12 +87,8 @@ class RhythmManager:
 
         now = time.perf_counter()
         elapsed = now - self.char_start_time
-        
-        beat_moment = self.current_char_dur / 2
 
-        distance_from_beat = abs(elapsed - beat_moment)
-
-        return distance_from_beat <= self.GRACE
+        return elapsed <= self.GRACE
     
     def current_expected_char(self) -> str | None:
         if self.current_word_index >= len(self.words):
