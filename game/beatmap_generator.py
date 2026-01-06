@@ -2,6 +2,7 @@ import random
 from dataclasses import dataclass
 from typing import Optional
 
+# NOT YET FULLY INTEGRATED YET
 @dataclass
 class Word:
     """Represents a word with rhythm timing info"""
