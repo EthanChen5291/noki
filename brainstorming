@@ -9,122 +9,361 @@ MAX_CPS = 4.5
 MIN_BEAT_GAP = 0.25 
 
 —
-Should manipulate these word_pauses (in terms of beats) in terms of varying BPM. for example MAX_WORD_PAUSE for very fast song should be longer than 1.5 beats.
+Should manipulate these pauses (in terms of beats) in terms of varying BPM. for example MAX_PAUSE for very fast song should be longer than 1.5 beats.
 
-MIN_WORD_PAUSE = 0.5
-IDEAL_WORD_PAUSE = 1.0
-MAX_WORD_PAUSE = 1.5
+MIN_PAUSE = 0.5
+IDEAL_PAUSE = 1.0
+MAX_PAUSE = 1.5
 
 Intervals of 0.5 here to stick to eight notes (because 0.5 of a beat is a half beat) for playability since triplets (0.33) are weird and sixteenth notes (0.25) are prob too fast
 
 — 
+CPS_TOLERANCE = 0.5
+SECTION_ANCHOR_COST = 1.0
 
-END_SPARE_BEATS = 2 (all words should finish by roughly two beats before the end of the song)
-
-__
-
-List[str], song_duration, bpm -> list[tuple[char, beat]]
-
-FIND WORD DURATIONS
-
-Total chars = length of all strings
-For word in words:
-l += len(word)
-
-CPS
-Chars
-
-get_CPS(word_list, song_duration, bpm) -> uses built-in CPS AND IDEAL_WORD_PAUSE limits to estimate current CPS.
-gets num_chars of word_list. 
-Takes avg word_pauses IDEAL_WORD_PAUSE and multiplies it by num_words - 1 (all the gaps between words). -> this returns “estimated” total time during gaps
-
-Get duration of typing (num_chars) by getting beat_duration. Think in rhythm notes:
-Call FUNCTION get_beat_duration(num_chars, bpm, song_secs, pause_secs)
-get_avg_beat_duration(num_chars, bpm, song_secs, pause_secs) -> list[tuple[str, str]])  which calculates the average beat_durations of 
-
-IDEA HERE: calculate CPS/playability of average case, then vary the word_pauses/speed that sticks to roughly the average case.
-concern: if we stick to average, there will be some deviation because:
-to be more natural, there must be more variation. However, the more variation from average case, the more likely the cps may grow above average and the song/word_list doesn’t line up anymore. get_CPS then becomes useless -> 
-Possibly just use get_cps as a ROUGH signal and add some checks later on, OR, center get_CPS around 125% of the average by overestimating word_pause_durations (MAX_WORD_PAUSE * (num_words - 1) * beat_duration) and then cutting out word_pause durations throughout to get closer to 100% of the average
-Total_time_typing = song_duration - word_pause_durations. We do MAX_WORD_PAUSE to get the fastest possible CPS for that song, and then eventually cut down the word pauses throughout to ensure we don’t go over song length. 
-What if it’s like, 50 one-letter words? Then lots of pauses and minimum typing length. So then if we cut pauses then we end up finishing much before the song ends. This is okay however as we can check if this happens (round(revised_word_pause_durations + total_time_typing) <= song_duration - (END_SPARE_BEATS * beat_duration)) AFTER and then just add repeated words until boolean is true
-What if it’s like one 50 letter word? Then, no pauses so overestimating word pauses does nothing -> results in matched song
-
-
-MIGHT NOT NEED CPS CHECK IN BEGINNING MENTIONED ABOVE, but still prefer to have cps check in the end 
-
-
-
-CURRENT TENTATIVE METHOD
-
-How to decide uniform char_beats that is within CPS?
-
-Currently im trying to figure out CPS but i dont have chars mapped yet
-
-do get_total_song_beats() which does song_duration / beat_duration. 
-In this case, usable_song_beats is 
-
-total_song_beats - END_SPARE_BEATS - word_pause_beats 
-
-where
-:
- word_pause_beats = (len(word_list) - 1) * word_pause_beat_duration
-
-We take usable_song_beats. Check BPM here: First, check validity before assigning:
-
-usable_duration_sec = usable_song_beats * beat_duration
-chars_per_sec = total_num_chars / usable_duration_sec
-
-CHECK if chars_per_sec is within CPS range (MIN_CPS <= chars_per_sec <= MAX_CPS) <- we should design this so that this happens almost all the time. If true, 
-
-secs_per_char =  1 / chars_per_sec
-beats_per_char = chars_per_sec / beat_duration
-
-We have word_list, beats_per_char, and word_pause_beat_durations. Since we verified chars_per_usable_sec is within our CPS range, we create a rough beat map using the beat counterparts ->
-
-create_beat_map(word_list : list[str], word_pause_beat_duration : int, beats_per_char) -> creates a very uniform beat_map list[tuple[char, beat]] with constant char_beat_durations (no rhythm) and constant word_pause_beat_durations, but works.
-
-beat_map = []
-curr_beat = 0
-
-for word in word_list:
-for char in list(word):
-beat_map.append((char, curr_beat)
-curr_beat += usable_beats_per_char
-beat_map.append((None, curr_beat))
-curr_beat += word_pause_beat_duration
-return beat_map
-
-FINISHED HERE 1/4/26. WORKING TOMORROW PAST THIS POINT
+END_SPARE_BEATS = 2 (all words should finish by at max two beats before the end of the song)
+From this, finishing_range = total_song_beats - END_SPARE_BEATS
 
 
 
 
-LATER, WE CHECK IF CURR_BEAT <= total_song_beats once we’re creating/revising the final beatmap. If true, we do something
+Take note of all measures (every 4th beat) and HARD LOCK sections
 
-What to do if (MIN_CPS <= chars_per_usable_sec <= MAX_CPS) is false?
+BEATS_PER_MEASURE = 4
+BEATS_PER_SECTION = 16
 
-Here, since chars_per_usable_sec is within our CPS range, we can do chars_per_usable_sec * usable_song_secs 
-Should we think in secs or beats here?
-Call a function that converts this to a beat map. 
+num_measures = int(total_song_beats /  BEATS_PER_MEASURE) 
 
-Check if usable_chars_per_sec != TARGET_CPS. Then, get target_cps_diff = TARGET_CPS - usable_chars_per_sec. We use target_cps_diff to then get the CPS as close to TARGET_CPS as possible. To make it human and natural, we do this not by uniformly making all words happen faster/slower, but by make some words faster/slower for variation
-FIRST, check every sixteenth beat. We should tweak the speed of the words to add variation but ALSO make a word begin on every 16th beat. 
-If target_cps_diff < 0: 
-We’re trying to speed things up. look for the closest earlier beat at every sixteenth note, and map out the distance from the sixteenth beat (we should already have a base beatmap).
+make_section_starts(total_song_beats: int) -> list[int]:
+	num_sections = int(total_song_beats /  BEATS_PER_SECTION)
+	return [i * BEATS_PER_SECTION for i in range(num_sections)]
+
+FIRST, check if num_sections < num_words:
+For now, just say invalid (We can include a guard that just shuffles and repeats the words LATER)
+
+section_starts = make_section_starts(total_song_beats) #lock section starts
+
+word_start[i] = section_start[i]
+
+ideal_char_beats = total_chars / TARGET_CPS / beat_duration  -> the number of beats that the characters ideally occupies
+
+available_beats = playable_beats - (num_sections * SECTION_ANCHOR_COST)
+where SECTION_ANCHOR_COST = 1. 
+
+Compare ideal_char_beats (how much time the characters want to occupy) with available_beats:
+
+slack_beats = available_beats - ideal_char_beats
+
+If slack_beats < 0:
+Speed up input density, reduce char spacing, reduce pauses
+If slack_beats > 0:
+Slow down input density, add pauses, stretch char timing
+
+POSSIBLE CHANGES FROM LEAST TO MOST NOTICEABLE:
+word-pause duration (between words inside a section)
+inter-character spacing (slightly stretch gaps)
+insert a rest / hold beat (rare, very noticeable)
+add/remove an extra word (design-level)
+
+If slowing down, prefer adding time:
+near the end of sections (beats 12–16), because it feels like a cadence
+after longer words (more natural breathing)
+at punctuation / phrase boundaries if you have them
+if speeding up, prefer removing time:
+from word pauses first (least noticeable)
+from extra intra-word spacing second
+avoid compressing clusters
 
 
-AFTER THIS, should we do an outlier check to see if any words happen particularly fast?
 
-AFTER OPTIMIZING CS (just typing period), we optimize to song length via the pauses.
-ABSTRACTLY: target_cps_diff * song_duration = char_diff (all the missing/extra characters in the song). If we do char_diff * usable_secs_per_char, we get secs_diff. Then, we take note of sec_diff when optimizing by tempering with word_pause times -> we simply shrink the word_pause times WiAIT PAUSE TIMES DONT CHANGE CPS.
-HERE, optimization function will try to get the CPS as close to target CPS as possible by tempering with the word_pause times to prevent a range of cps times. A new list will be created via function repeat(word_pause_time, num_times). 
-Later, another optimization function will try to optimize something else, (the difference is that optimization 1 considers just usable_beats (no pauses) while optimization 2 optimizes considering all total_beats (pauses included), considering full song length
 
-ALGORITHM FOR DETERMINING WORD PAUSES?
 
-Also, for all my songs every 4 measures is a “section”. For example, one melody lasts 4 measures, one harmony lasts 4 measures, etc. In my songs, it’s 4/4 time so 4 measures would be 16 beats. To land on hard beats (since every 4 measures a new section begins), for just our songs we could have a variable that takes account of every multiple of 16 and make sure the nearest word begins on that beat -> THIS IS IMPORTANT AND VERY CRUCIAL AND INTENTIONAL. We cannot consider non 4/4 songs right now as there’s no way to really estimate the time signature from the audio (other than use AI to match it to a song online and search it up) -> it can work but will not be as polished as 4/4 songs because time signatures are weird
-Have the engine find the nearest word to the 16th beat and basically ensure that the word BEGINS on the 16th beat. This has an impact because the new section marks new words.
+
+
+
+ASSIGN INITIAL WORDS:
+
+shuffled_word_list = random.shuffle(word_list)
+
+SECTION_BEATS = 16
+MEASURE_BEATS = 4
+FOURTH_MEASURE_BEATS = 4
+USABLE_SECTION_BEATS + SECTION_BEATS - FOURTH_MEASURE_BEATS # 12
+
+beat_duration = seconds_per_beat
+TARGET_CPS = desired characters / second
+
+def get_words_durations(words : list[str]) -> list[tuple[str, float]]:
+	return [(word, len(word) / TARGET_CPS) for word in words]
+
+def secs_to_beats(seconds: float) -> float:
+	return seconds / beat_duration
+
+words_with_durations = get_word_durations_secs(shuffled_word_list)
+
+figure out degree somehow depending on bpm 
+
+from dataclasses import dataclass
+
+@dataclass
+class Word:
+    text: str
+    ideal_beats: float
+    snapped_beats: float
+    snapped_cps: float
+
+sections_words: list[list[Word]]
+
+
+def snap(beats: float, degree: float = 0.5) -> float:
+    """Snap beats to nearest musical grid interval"""
+    return round(beats / degree) * degree
+
+def get_words_with_snapped_durations(words: list[str]) -> list[Word]:
+	“””Returns (word, ideal_beats, snapped_beats, snapped_cps)”””
+	return [
+		Word(
+		text=word
+		ideal_beats=ideal_beats :=  len(word) / TARGET_CPS / beat_duration,
+
+		
+		snapped_beats=(snapped := snap(ideal_beats, degree=0.5)),
+		snapped_cps=(len(word) / (snapped_beats * beat_duration))
+		)
+		for word in words
+	]
+
+#wanna trim remaining_sections # of words for the fourth measure transitions (any words that are 2, 3, or 4 beats)
+
+take raw pressure_ratio
+get_ideal_pause_duration
+substitute back and calculate true pressure_ratio while taking account of ideal_pause_duration
+
+def get_raw_section_pressure(remaining_words : list[Word], remaining_sections : int):
+	“””Calculates pressure WITHOUT considering pauses (step 1)”””
+	if remaining_sections <= 0 or not remaining_words:
+		return 0.0
+
+	total_word_beats = sum(w.snapped_beats for w in remaining_words)
+	total_avail_beats = remaining_sections * USABLE_SECTION_BEATS
+	return total_word_beats / total_avail_beats
+
+
+def get_ideal_pause_duration(remaining_words : list[Word], remaining_sections : int, section_pressure : float) -> float:
+	“””Calculate ideal pause duration to achieve pressure = 1.0 roughly.
+Returns pause duration clamped to [MIN_PAUSE, MAX_PAUSE] and 
+snapped to 0.5 (eighth note) beat grid”””
+	
+if remaining_sections <= 0 or len(remaining_words) <= 1:
+return IDEAL_PAUSE
+	
+	total_avail_beats = remaining_sections * USABLE_SECTION_BEATS
+	
+total_word_beats = sum(w.snapped_beats for w in remaining_words)
+
+	space_for_pauses = total_avail_beats - total_word_beats
+
+	num_pauses = len(remaining_words) - 1
+
+	
+if num_pauses == 0:
+		return IDEAL_PAUSE
+
+ideal_pause = space_for_pauses / num_pauses
+
+snapped_pause = snap(ideal_pause, degree=0.5)
+
+final_pause = max(MIN_PAUSE, min(MAX_PAUSE, snapped_pause))
+
+return final_pause
+	
+def get_section_pressure(remaining_words : list[Word], remaining_sections : int, pause_duration: float) -> float:
+	“””Calculates section pressure including pauses.”””
+	if remaining_sections <= 0 or not remaining_words:
+		return 0.0
+
+	total_avail_beats = remaining_sections * USABLE_SECTION_BEATS
+	total_word_beats = sum(w.snapped_beats for w in remaining_words)
+
+	raw_pressure = get_raw_section_pressure(remaining_words, remaining_sections)
+	
+	num_pauses = max(0, len(remaining_words) - 1)
+	total_pause_beats = pause_duration * num_pauses
+
+return (total_pause_beats + total_word_beats) / total_avail_beats
+	
+	
+	
+	
+
+# we then do ideal_pause_duration * num_pauses 
+# check if it’s odd: if odd, (% 2 = 1), add 1
+# then divide by num_pauses to get the real pause duration I should use
+
+#then, with this duration, later I’ll create create variation by subtracting and adding by steps to each WHILE also ensuring that there isn’t too much space (for example if a word_pause > MAX_WORD_PAUSE in a level, what do I do then?) OR space for fourth measure 
+
+def get_section_remaining_beats(section_words : list[Word]) -> float:
+	“””Returns remaining beats. section_words should include pauses.”””
+	total_word_duration = sum(word.snapped_beats for word in section_words)
+	return USABLE_SECTION_BEATS - total_word_duration
+
+to verify song is good, check empty space (total_typing_time / song_duration) and check cps outliers. mapping 4th measure to 1 char/beat does throw off cps a bit
+
+def assign_words(word_list, pause_beat_duration : float, num_sections)
+	words_bank = get_words_with_snapped_durations(word_list) # get snapped/cps
+	remaining_words = words.bank.copy()
+
+sections_words : list[list[Word]] = [[] for _ in range(num_sections)] # empty sections
+
+for section_idx in range(num_sections):
+section = sections_words[section_idx]
+	remaining_beats = 
+get_section_remaining_beats(sections_words[section_idx])
+	
+	raw_pressure = get_raw_section_pressure(remaining_words, num_sections - section_idx)
+	
+	ideal_pause = get_ideal_pause_duration(remaining_words, num_sections - section_idx, raw_pressure)
+
+	true_pressure = get_section_pressure(remaining_words, num_sections - section_idx, ideal_pause)
+
+candidates = [w for w in words_bank if w.snapped_beats <= remaining_beats]
+	
+	if not candidates: # eventually wanna make it repeat words if no words here
+		section.append(Word(“REST”, None, remaining_beats, 0)) # should I make this different from natural pause str message
+
+viable = [
+	w for w in candidates
+	if abs(w.snapped_cps - TARGET_CPS) <= CPS_TOLERANCE 
+# cps tolerance didn’t change
+]
+
+if viable:
+	if pressure > 1.2:
+		best = min(viable, key=lambda w: w.snapped_beats)\
+	else:
+		best = max(viable, key=lambda w: w.snapped_beats)
+else:
+	best = min(candidates, key = lambda w: abs(w.snapped_cps - TARGET_CPS)) 
+
+sections_words[section_idx].append(best) 
+remaining_words.remove(best)
+
+current_pause_duration = ideal_pause
+
+
+	
+		
+		
+	
+
+
+
+
+
+
+
+
+
+
+
+STABLE MATCHING ALGORITHM?? -> nah just do filtered greedy because human-like rhythm comes from strong structure and phrasing not perfect packing
+ 
+FINISH THE GREEDY RHYTHM MATCHING (hybrid between getting max(candidates) and min(candidates)
+
+CPS_TOLERANCE = 0.5  # tweakable
+
+SHORT_WORDS = [w for w in words if w.beats <= 3]
+MEDIUM_WORDS = [w for w in words if 3 < w.beats <= 6]
+LONG_WORDS = [w for w in words if w.beats > 6]
+
+candidates = [
+    w for w in remaining_words
+    if w.beats <= remaining_beats
+]
+
+if viable:
+    best = max(viable, key=lambda w: w.beats)
+else:
+    best = min(candidates, key=lambda w: abs(w.cps - TARGET_CPS))
+
+
+
+POSSIBLE POSITIONAL BIAS??? should make this custom per level (and once we have audio analyzers, we can look at loudest sections and place the bias there)
+
+position_bias = abs(section_progress - 0.5)
+cost += position_bias * SMALL_WEIGHT
+
+
+REMEMBER: engines section indexing is from 0 to 16, not 1 to 17. Make this constant across explanations
+
+
+
+
+SOME ORDER -> save fourth measure and ensure that a word leads to the next section at ONE CHAR/BEAT speed (different from the beats_per_char speed for emphasis). We can be lenient here: it can either begin on the first beat (if it has four letters), second beat(if it has three letters), and third beat (if it has two letters). if no word is found that’s four letters or less, THEN WHAT?? probably split a word (e.g rhythm -> rhyt | hm)  AFTER filling up the first three measures of every section
+
+filtered_remaining_word_beats = [section_beats - FOURTH_MEASURE_BEATS for section_beats in remaining_beats_in_sections] # every section’s first three measures’ remaining beats
+
+
+
+
+FINISHED HERE 1/5
+
+
+
+
+STEP = 0.5 (basically the minor changes I’m making across many notes)
+
+BUILD INITIAL LIST:
+
+# possible use of depth first traversal 
+
+if slack_beats > 0: or possibly another number like 0.5 or 1
+	initial_pause_duration = MAX_PAUSE_DURATION
+elif slack_beats < 0:
+	initial_pause_duration = MIN_PAUSE_DURATION
+
+then:
+
+remaining_word_list = shuffled_word_list[(num_sections - 1):]
+
+remaining_word_durations = get_word_beat_durations(words
+
+while abs(slack_beats) > STEP:
+if slack_beats > 0: (if the characters have more than enough beats ideally)
+	set 
+
+
+	elif slack_beats < 0: (if the characters need more beats ideally)
+	
+
+
+
+
+
+
+
+
+
+measures = bool list containing every 4th beat
+sections = bool list containing every 16th beat (1 + 
+
+For musical clarity we should try to ensure that all 4th beats
+
+
+align average CPS of usable_secs to be as close to TARGET_CPS as possible by varying certain word speeds, (thus humanizing char_durations)
+
+vary pause_durations in a way that aligns the word_list to finish such that playable_beats <= curr_beat <= song_duration such that playable_beats = song_duration - END_SPARE_BEATS 
+
+ensure that when I’m manipulating the pause_durations and char_durations, I’m matching every 16th beat to a new word -> how do I do this?
+beat_diff = (total_song_beats - END_SPARE_BEATS) - curr_beat
+check the sign of beat_diff. Then, we basically update beat_diff while incrementing some word_duration by eighth-note beats (0.5 beat intervals) until beat_diff is between 0 and -END_SPARE_BEATS. 
+How do we decide if we’re increasing or decreasing word_duration?
+
+
+If the final song_duration - END_SPARE_BEATS <= curr_beat <= song_duration at the end, the final beat_map is done.
+
+
+
 
 
 
@@ -147,7 +386,3 @@ FAR FAR FAR FUTURE: s there a way for pygame to look into the audio file itself 
 Lots of songs that end quickly (dun dun DUM finish) usually end on a loud note. We could identify if it ends quickly with an audio analyzer and then manipulate a boolean “ends_quickly”. If ends_quickly, then reduce the END_SPARE_BEATS (grace period duration for all words to finish at the end of the song)
 
 General pattern_matching -> could have it look at notes? For example if one melody is played, the same pitches are general seen in the audio. This could then identify ABA song patterns 
-
-
-
-
