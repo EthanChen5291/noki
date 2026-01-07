@@ -28,6 +28,8 @@ class Level:
           self.song = song
           
 class Game:
+    SCROLL_SPEED = 300
+    
     def __init__(self, level) -> None:
         self.screen = pygame.display.set_mode((1920, 1080)) # how to adjust based off screen size resolution
         self.clock = pygame.time.Clock()
@@ -142,27 +144,71 @@ class Game:
                      self.draw_text("Yikes", False)
                      self.misses += 1
                 
-                print("HIT:", key, "expected:", expected)
+                #print("HIT:", key, "expected:", expected)
                 self.used_current_char = True
         
         self.draw_curr_word(self.rhythm.current_expected_word())
 
     # --- TEXT
 
-    def show_message(self, txt : str, secs : int):
-        self.message = txt
-        self.message_duration = secs
-
-    def draw_text(self, txt : str, left : bool): # white text
-        text_surface = self.font.render(txt, True, (255, 255, 255))
-        if left:
-            self.screen.blit(text_surface, (100,100))
-        else:
-            self.screen.blit(text_surface, (400, 100))
-
-    #def draw_text(self, txt : str, color : tuple, pos : tuple): # white text
-    #    text_surface = self.font.render(txt, True, color)
-    #   self.screen.blit(text_surface, pos)
+    def render_timeline(self):
+        current_time = time.perf_counter() - self.rhythm.start_time
+        
+        current_word = self.rhythm.current_expected_word()
+        if current_word:
+            word_surface = self.font.render(current_word, True, (255, 255, 255))
+            word_rect = word_surface.get_rect(center=(960, 300))
+            self.screen.blit(word_surface, word_rect)
+        
+        pygame.draw.line(
+            self.screen, (255, 255, 255),
+            (0, 540), (1920, 540),
+            4
+        )
+        
+        #center hit line (idk if imma keep, prob gonna make it a bar above the line)
+        pygame.draw.line(
+            self.screen, (255, 255, 0),  # Yellow
+            (960, 490), (960, 590),
+            6
+        )
+        
+        for event in self.rhythm.beatmap:
+            time_until_hit = event.timestamp - current_time
+            
+            if -0.5 < time_until_hit < 3.0:
+                marker_x = 960 + (time_until_hit * SCROLL_SPEED)
+                
+                if event.is_rest:
+                    # pause marker (GONNA CHANGE TO BLUE LINE SOON)
+                    pygame.draw.line(
+                        self.screen, (100, 100, 255),
+                        (marker_x, 540), (marker_x, 600),
+                        2
+                    )
+                elif event.beat_position % 4 == 0:
+                    # measure line
+                    pygame.draw.line(
+                        self.screen, (255, 255, 255),
+                        (marker_x, 490), (marker_x, 590),
+                        4
+                    )
+                elif event.beat_position % 1 == 0:
+                    # beat line
+                    pygame.draw.line(
+                        self.screen, (100, 100, 100),
+                        (marker_x, 510), (marker_x, 570),
+                        2
+                    )
+        
+        current_char_idx = self.rhythm.current_char_index
+        if current_word and current_char_idx < len(current_word):
+            char_width = self.font.size(current_word[0])[0]
+            arrow_x = word_rect.left + (current_char_idx * char_width)
+            pygame.draw.polygon(
+                self.screen, (255, 0, 0),
+                [(arrow_x, 350), (arrow_x-10, 370), (arrow_x+10, 370)]
+            )
     
     def draw_miss_message(self): # white text
         self.draw_text("Missed.", (255, 0, 0), (100, 100))
