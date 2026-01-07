@@ -1,12 +1,19 @@
 import random
 from dataclasses import dataclass
 from typing import Optional
+from enum import Enum, auto
 
 # NOT YET FULLY INTEGRATED YET
+
+class RestType(Enum):
+     PAUSE = auto()
+     FILL = auto()
+
 @dataclass
 class Word:
     """Represents a word with rhythm timing info"""
     text: str
+    rest_type: RestType
     ideal_beats: float
     snapped_beats: float
     snapped_cps: float
@@ -52,6 +59,7 @@ def get_words_with_snapped_durations(words: list[str], beat_duration: float) -> 
 	return [
 		Word(
 		    text=word,
+            rest_type=None,
 		    ideal_beats=(ideal_beats :=  len(word) / TARGET_CPS / beat_duration),
 		    snapped_beats=(snapped := snap_to_grid(ideal_beats, degree=0.5)),
 		    snapped_cps=(len(word) / (snapped * beat_duration))
@@ -59,13 +67,13 @@ def get_words_with_snapped_durations(words: list[str], beat_duration: float) -> 
         for word in words
     ]
 
-def get_raw_section_pressure(remaining_words: list[Word], remaining_sections: int):
+def get_raw_pressure(remaining_words: list[Word], remaining_sections: int, leftover_beats: float):
 	"""Calculates pressure WITHOUT considering pauses (Step 1)"""
 	if remaining_sections <= 0 or not remaining_words:
 		return 0.0
 
 	total_word_beats = sum(w.snapped_beats for w in remaining_words)
-	total_avail_beats = remaining_sections * USABLE_SECTION_BEATS
+	total_avail_beats = (remaining_sections * USABLE_SECTION_BEATS) + leftover_beats
 	return total_word_beats / total_avail_beats
 
 def get_ideal_pause_duration(
@@ -82,7 +90,10 @@ def get_ideal_pause_duration(
             
     total_avail_beats = remaining_sections * USABLE_SECTION_BEATS    
     total_word_beats = sum(w.snapped_beats for w in remaining_words)
-    space_for_pauses = total_avail_beats - total_word_beats
+    space_for_pauses = total_avail_beats - total_word_beats # could be negative
+
+    if space_for_pauses <= 0:
+         raise Exception("no pause time") # later, just return -1.0 and have the outside function check
 
     num_pauses = len(remaining_words) - 1    
     if num_pauses == 0:
@@ -94,17 +105,15 @@ def get_ideal_pause_duration(
 
     return final_pause
 
-def get_section_pressure(remaining_words : list[Word], remaining_sections : int, pause_duration: float) -> float:
+def get_pressure_ratio(remaining_words : list[Word], remaining_sections : int, leftover_beats : float, pause_duration: float) -> float:
     """
-    Calculates section pressure including pauses.
+    Calculates pressure of remaining song beats including pauses.
     """
     if remaining_sections <= 0 or not remaining_words:
         return 0.0
 
-    total_avail_beats = remaining_sections * USABLE_SECTION_BEATS
+    total_avail_beats = leftover_beats + (remaining_sections * USABLE_SECTION_BEATS)
     total_word_beats = sum(w.snapped_beats for w in remaining_words)
-
-    raw_pressure = get_raw_section_pressure(remaining_words, remaining_sections)
 
     num_pauses = max(0, len(remaining_words) - 1)
     total_pause_beats = pause_duration * num_pauses
@@ -118,36 +127,72 @@ def get_section_remaining_beats(section_words : list[Word]) -> float:
 	total_word_duration = sum(word.snapped_beats for word in section_words)
 	return USABLE_SECTION_BEATS - total_word_duration
 
-def assign_words(word_list, pause_beat_duration : float, num_sections):
-    words_bank = get_words_with_snapped_durations(word_list) # get snapped/cps
-    remaining_words = words_bank.copy()
+def select_best_word(remaining_beats: float, words_bank: list[Word], remaining_words: list[Word], true_pressure : float) -> Word:
+    candidates = [w for w in remaining_words if w.snapped_beats <= remaining_beats]
+            
+    if not candidates: # eventually wanna make it repeat words if no words here
+        if remaining_beats >= BEATS_PER_MEASURE:
+            valid = max((w for w in words_bank if w.snapped_beats <= remaining_beats),
+                            default = None
+                            )
+            if valid is not None:
+                return valid # may cause some issues since total_avail_beats is manipulated with redundant word here
 
-    sections_words : list[list[Word]] = [[] for _ in range(num_sections)] # empty sections
+        else:
+            return Word("", RestType.Fill, None, remaining_beats, 0) # should I make this different from natural pause str message
+
+    viable = [w for w in candidates if abs(w.snapped_cps - TARGET_CPS) <= CPS_TOLERANCE]
+    if viable:
+        if true_pressure > 1.2: # 20% over-capacity
+            return min(viable, key=lambda w: w.snapped_beats)
+        else:
+            return max(viable, key=lambda w: w.snapped_beats)
+    else:
+        return min(candidates, key = lambda w: abs(w.snapped_cps - TARGET_CPS)) 
+
+def assign_words(word_list: list[Word], pause_beat_duration: float, num_sections: int) -> list[list[Word]]:
+    words_bank = get_words_with_snapped_durations(word_list)
+    remaining_words = words_bank.copy()
+    sections_words : list[list[Word]] = [[] for _ in range(num_sections)]
 
     for section_idx in range(num_sections):
         section = sections_words[section_idx]
+
         remaining_beats = get_section_remaining_beats(sections_words[section_idx])
+        
+        while remaining_beats >= ideal_pause:
+            # recalculate pressure and ideal_pause for every section
+            raw_pressure = get_raw_pressure(remaining_words, num_sections - section_idx, remaining_beats)
+            ideal_pause = get_ideal_pause_duration(remaining_words, num_sections - section_idx, raw_pressure)
+            true_pressure = get_pressure_ratio(remaining_words, num_sections - section_idx, remaining_beats, ideal_pause)
 
-        raw_pressure = get_raw_section_pressure(remaining_words, num_sections - section_idx)
-        ideal_pause = get_ideal_pause_duration(remaining_words, num_sections - section_idx, raw_pressure)
-        true_pressure = get_section_pressure(remaining_words, num_sections - section_idx, ideal_pause)
+            best = select_best_word(section, remaining_beats, words_bank, remaining_words, true_pressure)
 
-        candidates = [w for w in words_bank if w.snapped_beats <= remaining_beats]
-        if not candidates: # eventually wanna make it repeat words if no words here
-            section.append(Word("REST", None, remaining_beats, 0)) # should I make this different from natural pause str message
+            sections_words[section_idx].append(best)
+            
+            if best.rest_type is None:
+                remaining_words.remove(best)
 
-        viable = [w for w in candidates if abs(w.snapped_cps - TARGET_CPS) <= CPS_TOLERANCE]
-        if viable:
-            if true_pressure > 1.2:
-                best = min(viable, key=lambda w: w.snapped_beats)
-            else:
-                best = max(viable, key=lambda w: w.snapped_beats)
-        else:
-            best = min(candidates, key = lambda w: abs(w.snapped_cps - TARGET_CPS)) 
+            rest = Word("", RestType.Pause, None, ideal_pause, 0)
+            sections_words[section_idx].append(rest)
 
-        sections_words[section_idx].append(best) 
-        remaining_words.remove(best)
+            remaining_beats -= (best.snapped_beats + ideal_pause)
+            current_pause_duration = ideal_pause
 
-        current_pause_duration = ideal_pause
+# ------- TO-DO LIST -------
+
+# ---- functionality
+
+# assign pauses?
+# vary pauses
+# positional bias
+# rebalancing checks
+# local cps outlier checks
+
+
+# ---- quality of life
+
+# chance to make the 4th measure one word that at 1 char / beat for build-up
+# triplet events
 
 
