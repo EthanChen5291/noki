@@ -45,14 +45,16 @@ THREE cat emote animations for CORRECT notes (happy)
 # MUSIC (undecided)
 
 LEVELS:
-- tutorial (bpm=120, song_secs: 2:28.920)
-- finalmeow (bpm=180, )
-- RAMJAM (bpm=120)
-- BAMSAM (bpm=170)
-- thatstrange.. (bpm=150)
+- tutorial (bpm=120, song_secs:) yes_ending
+- heartme2 (bpm = 120, ) no_ending
+- moonlitforest (bpm = 110) yes_ending
+- finalmeow (bpm=180, ) yes_ending
+- RAMJAM (bpm=120) yes_ending
+- BAMSAM (bpm=170) yes_ending
+- thatstrange.. (bpm=150) 
 - goofuhdur (bpm=120, )
 
 PASSIVE:
-- heyjazz (title screen) bpm=95
-- heyjazz (level-play screen) bpm=95
-- heyjazz (settings screen) bpm=95
+- heyjazz (title screen) bpm=95 no_ending
+- heyjazz (level-play screen) bpm=95 no_ending
+- heyjazz (settings screen) bpm=95 no_ending
