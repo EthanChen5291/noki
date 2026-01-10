@@ -46,7 +46,7 @@ THREE cat emote animations for CORRECT notes (happy)
 
 LEVELS:
 - tutorial (bpm=120, song_secs:) yes_ending
-- heartme2 (bpm = 120, ) no_ending
+- heartme2 (bpm = 120, ) yes_ending
 - moonlitforest (bpm = 110) yes_ending
 - finalmeow (bpm=180, ) yes_ending
 - RAMJAM (bpm=120) yes_ending
