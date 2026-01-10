@@ -130,16 +130,11 @@ def get_section_remaining_beats(section_words : list[Word]) -> float:
 def select_best_word(remaining_beats: float, words_bank: list[Word], remaining_words: list[Word], true_pressure : float) -> Word:
     candidates = [w for w in remaining_words if w.snapped_beats <= remaining_beats]
             
-    if not candidates: # eventually wanna make it repeat words if no words here
-        if remaining_beats >= BEATS_PER_MEASURE:
-            valid = max((w for w in words_bank if w.snapped_beats <= remaining_beats),
-                            default = None
-                            )
-            if valid is not None:
-                return valid # may cause some issues since total_avail_beats is manipulated with redundant word here
+    if not candidates and random.random() < 0.3:
+        return random.choice(words_bank)
 
-        else:
-            return Word("", RestType.Fill, None, remaining_beats, 0) # should I make this different from natural pause str message
+        fill = Word("", RestType.FILL, None, remaining_beats, 0.0)
+        return fill 
 
     viable = [w for w in candidates if abs(w.snapped_cps - TARGET_CPS) <= CPS_TOLERANCE]
     if viable:
@@ -170,7 +165,7 @@ def assign_words(word_list: list[str], pause_beat_duration: float, num_sections:
 
             sections_words[section_idx].append(best)
             
-            if best.rest_type is None:
+            if best.rest_type is None and best in remaining_words:
                 remaining_words.remove(best)
 
             rest = Word("", RestType.PAUSE, None, ideal_pause, 0)
@@ -279,12 +274,10 @@ def create_char_events(section_words : list[Word], beat_duration : float) -> lis
     #word_text: str
     #beat_position: float
     char_events: list[CharEvent] = []
+    curr_beat = 0.0
 
     for section_idx, section in enumerate(section_words):
-        curr_beat = section_idx * BEATS_PER_SECTION # maybe later do curr_beat = global_beat_cursor?
-
         for word in section:
-
             if word.text != "":
                 char_beat_duration = word.snapped_beats / len(word.text)
 
@@ -298,7 +291,6 @@ def create_char_events(section_words : list[Word], beat_duration : float) -> lis
                         )
                     )
                     curr_beat += char_beat_duration
-            
             else:
                 curr_beat += word.snapped_beats
     
@@ -310,15 +302,22 @@ def generate_beatmap(word_list : list[str], bpm : int, song_duration : int):
 
     sections_words = assign_words(word_list, IDEAL_PAUSE, num_sections, beat_duration)
 
-    sections_words = vary_pause_duration(sections_words) # change to produce None
+    vary_pause_duration(sections_words) # change to produce None
 
-    sections_words = balance_section_timing(sections_words)
+    balance_section_timing(sections_words)
 
     #should add cps outlier check in here + other tuning stuff 
     # if snapped_cps < MIN_CPS or snapped_cps > MAX_CPS:
     # rebalance()
     return create_char_events(sections_words, beat_duration)
 
+def print_beatmap(events):
+    for e in events:
+        print(
+            f"{e.char or '·'} "
+            f"[beat {e.beat_position:5.2f}] "
+            f"[{e.timestamp:5.2f}s]"
+        )
 
 # when incrementing up/down, could ask "is_close_to_beat" (does this make the next word on a beat)
 # with a degree (if distance <= DEGREE then increment.)
