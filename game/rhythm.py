@@ -8,6 +8,7 @@ class RhythmManager:
         self.beat_map = beat_map
         self.char_event_idx = 0
         self.start_time = time.perf_counter()
+        self.last_word = None
     
     def update(self):
         """Advance to next character if timestamp has passed"""
@@ -44,11 +45,16 @@ class RhythmManager:
         return event.char
     
     def current_expected_word(self) -> str | None:
-        """Get the current word being typed"""
         if self.char_event_idx >= len(self.beat_map):
             return None
-        
-        return self.beat_map[self.char_event_idx].word_text
+
+        event = self.beat_map[self.char_event_idx]
+
+        if event.char == event.word_text[0]:
+            self.last_word = event.word_text
+
+        return self.last_word
+
     
     def is_finished(self) -> bool:
         """Check if song is complete"""

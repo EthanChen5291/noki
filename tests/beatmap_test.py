@@ -11,7 +11,7 @@ def test_sections_sum_to_16_beats():
     beat_duration = 60 / bpm
     num_sections = 4
 
-    sections = assign_words(words, 1.0, num_sections, beat_duration)
+    sections = assign_words(words, num_sections, beat_duration)
 
     for section in sections:
         total = sum(w.snapped_beats for w in section)
@@ -45,4 +45,4 @@ def test_basic_beatmap():
             f"word={event.word_text}"
         )
 
-test_basic_beatmap()
+test_basic_beatmap() # gets 5.25 second max durations. where pauses?
