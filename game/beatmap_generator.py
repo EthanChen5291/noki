@@ -2,6 +2,7 @@ import random
 from dataclasses import dataclass
 from typing import Optional
 from enum import Enum, auto
+from analysis.audio_analysis import analyze_song_intensity, IntensityProfile
 
 # NOT YET FULLY INTEGRATED YET
 
@@ -46,6 +47,8 @@ SECTION_ANCHOR_COST = 1.0 # idk if I need this
 PAUSE_ROUND_THRESHOLD = 0.5
 MIN_BEAT_GAP = 0.25  # gap between each beat. want to incorporate later as a guard/check
 SNAP_GRID = 0.5
+
+BUILD_UP_WORDS = ["rush", "hope", "more", "next"]
 
 def snap_to_grid(beats: float, grid: float = 0.5) -> float:
     """Snap beats to nearest musical grid interval"""
@@ -106,9 +109,7 @@ def get_ideal_pause_duration(
     return final_pause
 
 def get_pressure_ratio(remaining_words : list[Word], remaining_sections : int, leftover_beats : float, pause_duration: float) -> float:
-    """
-    Calculates pressure of remaining song beats including pauses.
-    """
+    """Calculates pressure of remaining song beats including pauses."""
     if remaining_sections <= 0 or not remaining_words:
         return 0.0
 
@@ -121,22 +122,26 @@ def get_pressure_ratio(remaining_words : list[Word], remaining_sections : int, l
     return (total_pause_beats + total_word_beats) / total_avail_beats
 
 def get_section_remaining_beats(section_words : list[Word]) -> float:
-	"""
-    Returns remaining beats. section_words should include pauses.
-    """
+	"""Returns remaining beats. section_words should include pauses."""
 	total_word_duration = sum(word.snapped_beats for word in section_words)
 	return BEATS_PER_SECTION - total_word_duration
 
-def select_best_word(remaining_beats: float, words_bank: list[Word], remaining_words: list[Word], true_pressure : float) -> Word:
+def select_best_word(remaining_beats: float, words_bank: list[Word], remaining_words: list[Word], 
+                     true_pressure : float, prepping_for_buildup: bool) -> Word:
+    if prepping_for_buildup:
+        remaining_beats = remaining_beats % BEATS_PER_MEASURE # beats left in measure
+
     candidates = [w for w in remaining_words if w.snapped_beats <= remaining_beats]
             
-    if not candidates and random.random() < 0.3:
-        return random.choice(words_bank)
+    if not candidates:
+        if random.random() < 0.3 and words_bank:
+            return random.choice(words_bank)
 
         fill = Word("", RestType.FILL, None, remaining_beats, 0.0)
         return fill 
 
     viable = [w for w in candidates if abs(w.snapped_cps - TARGET_CPS) <= CPS_TOLERANCE]
+    
     if viable:
         if true_pressure > 1.2: # 20% over-capacity
             return min(viable, key=lambda w: w.snapped_beats)
@@ -145,34 +150,126 @@ def select_best_word(remaining_beats: float, words_bank: list[Word], remaining_w
     else:
         return min(candidates, key = lambda w: abs(w.snapped_cps - TARGET_CPS)) 
 
-def assign_words(word_list: list[str], pause_beat_duration: float, num_sections: int, beat_duration : float) -> list[list[Word]]:
+def get_base_pause(intensity_profile: IntensityProfile, section_intensities: list[float], section_idx: int) -> float:
+    """Returns a base pause duration depending on how loud the given section is"""
+    section_intensity = section_intensities[section_idx]
+    
+    if section_intensity is not None:
+            avg_intensity = sum(section_intensities) / len(section_intensities) if intensity_profile else section_intensity
+            intensity_ratio = section_intensity / (avg_intensity + 1e-6)
+            if intensity_ratio < 0.8:
+                base_ideal_pause = min(MAX_PAUSE, IDEAL_PAUSE + 0.5)
+            elif intensity_ratio > 1.2:
+                base_ideal_pause = max(MIN_PAUSE, IDEAL_PAUSE - 0.25)
+
+def get_beat_offset(remaining_beats: float):
+    """Returns an offset that rounds the current beat to the start of the measure
+    if offset < PAUSE_ROUND_THRESHOLD, else returns 0."""
+    current_section_beat = BEATS_PER_SECTION - remaining_beats
+    beat_inside_measure = current_section_beat % BEATS_PER_MEASURE
+
+    if beat_inside_measure != 0: # round note to nearest beat
+        if (beat_inside_measure < PAUSE_ROUND_THRESHOLD):
+            return -beat_inside_measure
+            
+        elif (BEATS_PER_MEASURE - beat_inside_measure < PAUSE_ROUND_THRESHOLD):
+            return beat_inside_measure
+    
+    return 0
+
+# if is loudest section,add build_up
+def is_loudest_section(intensity_profile: IntensityProfile, section_idx: int) -> bool:
+    """Returns true if the given section is the loudest section in the song."""
+    section_intensities = intensity_profile.section_intensities
+
+    if section_intensities(section_idx) == max(section_intensities):
+        return True
+    
+    return False
+
+def get_current_measure(section_remaining_beats: float) -> int:
+    """Calculates current measure from number of remaining beats in section"""
+    beat_in_section = BEATS_PER_SECTION - section_remaining_beats
+    return int(beat_in_section // BEATS_PER_MEASURE)
+
+def add_build_up(section_words: list[Word], word_bank: list[Word], remaining_words: list[Word]) -> list[Word]:
+    """Adds a 4-letter word from remaining_words or word_bank (if none in remaining_words) 
+    to section_words set at one letter per beat. If none found, pulls from BUILD_UP_WORDS"""
+    remaining_four_letter_words = (w for w in remaining_words if len(w.word_text == 4))
+    
+    if remaining_four_letter_words:
+        word = random.choice(remaining_four_letter_words)
+    else: 
+        four_letter_words = (w for w in word_bank if len(w.word_text == 4))
+        if four_letter_words:
+            word = random.choice(four_letter_words)
+    
+    word = random.choice(BUILD_UP_WORDS)
+    
+    word.snapped_beats = 4
+    section_words.append(word)
+
+def assign_words(word_list: list[str], num_sections: int, beat_duration : float, 
+                 intensity_profile: Optional[IntensityProfile] = None) -> list[list[Word]]:
     words_bank = get_words_with_snapped_durations(word_list, beat_duration)
     remaining_words = words_bank.copy()
     sections_words : list[list[Word]] = [[] for _ in range(num_sections)]
-
+    
+    beat_intensities = intensity_profile.beat_intensities # DO A CHECK LATER THAT ROUNDS NEXT BEAT IF NEXT BEAT IS BIG BEAT
+    section_intensities = intensity_profile.section_intensities
+    prep_for_buildup = False #ensures words assigned don't cross into the next measure (leaving all of the last measure for buildup)
+    before_loudest_section = False
+    previous_measure = -1
+    # I wanna have a 50% chance at buildup in the last measure of every section 
+    # and 100% chance if it's the last measure before the loudest section
     for section_idx in range(num_sections):
-        section = sections_words[section_idx]
-
+        section_intensity = section_intensities[section_idx] if intensity_profile else None
+        base_pause = get_base_pause(section_intensity)
+            
         remaining_beats = get_section_remaining_beats(sections_words[section_idx])
         
-        while remaining_beats >= IDEAL_PAUSE:
+        if intensity_profile:
+            if is_loudest_section(intensity_profile, section_idx+1):
+                before_loudest_section = True
+
+        while remaining_beats >= base_pause:
             # recalculate pressure and ideal_pause for every section
+            current_measure = get_current_measure(remaining_beats)
+            
+            if current_measure == 3:
+                random_chance = random.randint(1, 2) == 1 #50% chance
+                if random_chance or before_loudest_section or (current_measure == previous_measure): #idk if better name for previous measure
+                    prep_for_buildup = True
+            else:
+                prep_for_buildup = False
+                previous_measure = current_measure
+
             raw_pressure = get_raw_pressure(remaining_words, num_sections - section_idx, remaining_beats)
             ideal_pause = get_ideal_pause_duration(remaining_words, num_sections - section_idx, raw_pressure)
+            
+            if section_intensity is not None:
+                ideal_pause = (ideal_pause * 0.5) + (base_pause * 0.5) #mixing. idk if ratios are ok
+            
             true_pressure = get_pressure_ratio(remaining_words, num_sections - section_idx, remaining_beats, ideal_pause)
-
-            best = select_best_word(remaining_beats, words_bank, remaining_words, true_pressure)
-
+            
+            best = select_best_word(remaining_beats, words_bank, remaining_words, true_pressure, prep_for_buildup)
             sections_words[section_idx].append(best)
             
             if best.rest_type is None and best in remaining_words:
                 remaining_words.remove(best)
 
-            rest = Word("", RestType.PAUSE, None, ideal_pause, 0)
-            sections_words[section_idx].append(rest)
+            if (remaining_beats - best.snapped_beats) > 0:
+                offset = get_beat_offset(remaining_beats)
+                best.snapped_beats += offset
+                remaining_beats -= best.snapped_beats 
+                
+            if (remaining_beats - ideal_pause) > 0:
+                offset = get_beat_offset(remaining_beats)
+                new_pause = ideal_pause + offset
+                remaining_beats -= new_pause
 
-            remaining_beats -= (best.snapped_beats + ideal_pause)
-            current_pause_duration = ideal_pause
+            rest = Word("", RestType.PAUSE, None, new_pause, 0)
+            sections_words[section_idx].append(rest)
     
     return sections_words
 
@@ -234,9 +331,7 @@ def vary_pause_duration(sections_words: list[list[Word]]) -> list[list[Word]]:
     return sections_words
                   
 def get_pause_increment(word_len: int) -> float:
-    """
-    Returns a pause duration offset based on following word length.
-    """
+    """Returns a pause duration offset based on following word length."""
     if word_len >= 8: 
         return 0.5
     elif word_len >= 5:
@@ -245,9 +340,7 @@ def get_pause_increment(word_len: int) -> float:
         return -0.25 
     
 def balance_section_timing(section_words: list[list[Word]], target_beats: float = BEATS_PER_SECTION) -> None:
-    """
-    Adjust pauses so section ends exactly on target_beats.
-    """
+    """Adjust pauses so section ends exactly on target_beats."""
     for section in section_words:
         current_total = sum(w.snapped_beats for w in section)
         
@@ -296,11 +389,17 @@ def create_char_events(section_words : list[Word], beat_duration : float) -> lis
     
     return char_events
 
-def generate_beatmap(word_list : list[str], bpm : int, song_duration : int):
+def generate_beatmap(word_list : list[str], bpm : int, song_duration : int, audio_path: Optional[str] = None):
     beat_duration = 60 / bpm
     num_sections = int(song_duration / (beat_duration * BEATS_PER_SECTION))
+    intensity_profile = None
 
-    sections_words = assign_words(word_list, IDEAL_PAUSE, num_sections, beat_duration)
+    if audio_path:
+        beat_intensities, section_intensities = analyze_song_intensity(audio_path, bpm)
+        section_intensity_profile = section_intensities
+        beat_intensity_profile = beat_intensities
+
+    sections_words = assign_words(word_list, num_sections, beat_duration, intensity_profile=intensity_profile)
 
     vary_pause_duration(sections_words) # change to produce None
 
