@@ -1,6 +1,12 @@
 # noki
 
-![alt text](0000.png)
+![alt text](assets/images/nokiv1.png)
+
+Noki's mission is to create an algorithm that injects as much musicality and proven design patterns into ANY "list of words" and ANY song/sound as possible -- mixing grid alignment with a controlled random/humanized feel to create a playable custom rhythmic level that takes "typing" up another key (musically and keyboard-ly).
+
+Noki uses deterministic techniques, music theory, and audio analysis. As developers, we take heavy inspiration from modern rhythm games' systems, trends, and (albeit handmade) levels and want to imitate their impact with generated beatmaps from top to bottom. 
+
+LIMITATION: may require iteration and playtesting to truly reach the level of hand-crafted levels. 
 
 ### ==== BRAINSTORMING ==== ###
 
