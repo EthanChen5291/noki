@@ -1,9 +1,19 @@
-from game.beatmap_generator import snap_to_grid, assign_words, BEATS_PER_SECTION, create_char_events, generate_beatmap
+from game.beatmap_generator import snap_to_grid, assign_words, BEATS_PER_SECTION, get_beat_duration, create_char_events, generate_beatmap, Word
+
 
 def test_snap_to_grid_basic():
     assert snap_to_grid(1.24) == 1.0
     assert snap_to_grid(1.26) == 1.5
     assert snap_to_grid(2.75) == 3.0
+
+def test_get_beat_duration():
+    assert get_beat_duration(120) == 0.5
+    assert get_beat_duration(60) == 1
+    #assert get_beat_duration(0) 
+
+#def test_get_words_with_snapped_durations():
+    #words = 
+    #assert get_words_with_snapped_durations() == 
 
 def test_sections_sum_to_16_beats():
     words = ["cat", "no", "ki", "rhythm", "engine"]
@@ -18,22 +28,18 @@ def test_sections_sum_to_16_beats():
         assert abs(total - BEATS_PER_SECTION) < 0.01
 
 def test_char_events_monotonic():
-    events = create_char_events(
-        [
-            [
-                # empty sect
-            ]
-        ],
-        beat_duration=0.5
-    )
+    sections : list[list[Word]] = [] # migyht throw error because sections is usually list[list[word]]
+    events = create_char_events(sections, beat_duration=0.5)
 
     timestamps = [e.timestamp for e in events]
     assert timestamps == sorted(timestamps)
 
+# need to teste very function used in test_beatmap
+
 def test_basic_beatmap():
     words = ["cat", "no", "ki"]
     bpm = 120
-    song_duration = 8.0 # seconds
+    song_duration = 8 # secs
 
     beatmap = generate_beatmap(words, bpm, song_duration)
 
@@ -45,4 +51,6 @@ def test_basic_beatmap():
             f"word={event.word_text}"
         )
 
+#eventually do cps outlier check
+# 
 test_basic_beatmap() # gets 5.25 second max durations. where pauses?
