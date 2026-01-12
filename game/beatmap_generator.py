@@ -290,8 +290,6 @@ def assign_words(word_list, num_sections, beat_duration, intensity_profile=None)
             if do_buildup and in_last_measure and remaining_beats >= 4:
                 add_build_up_word(sections[section_idx], words_bank, remaining_words)
                 remaining_beats -= 4
-
-                # 👇 Fix #4: force no pause after buildup (keeps tension)
                 continue
 
             # ---- PRESSURE + CPS LOGIC

@@ -37,9 +37,9 @@ def test_char_events_monotonic():
 # need to teste very function used in test_beatmap
 
 def test_basic_beatmap():
-    words = ["cat", "no", "ki"]
+    words = ["cat", "test", "me", "rhythm", "beat"]
     bpm = 120
-    song_duration = 8 # secs
+    song_duration = 149 # secs
 
     beatmap = generate_beatmap(words, bpm, song_duration)
 
