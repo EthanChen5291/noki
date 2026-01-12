@@ -8,22 +8,12 @@ Noki uses deterministic techniques, music theory, and audio analysis. As develop
 
 LIMITATION: may require iteration and playtesting to truly reach the level of hand-crafted levels. 
 
-### ==== BRAINSTORMING ==== ###
+### ==== FEATURES ==== ###
 
-- allows user customizability in designing levels/music (custom word bank per level, custom music)
-- algorithm that maps words to bpm in a ergonomically satisfying way
-
-# APPEAL/sell to user
+- Allows user customizability in designing levels/music (custom word bank per level, custom music)
+- Algorithm that maps words to bpm in a ergonomically satisfying way
 - 3-5 default progression levels, each level with a specific word bank (music finished) to demonstrate 
 - Journey, Classic, Master modes. Visualizer: (counted as checkmark on level (Journey accomplished), star (Classic accomplished), and cat crown (Master mode accomplished))
-
-MAIN ALGORITHM
-- main progression -> 3-5 levels, not manually made. we just plug in the word bank into the algorithm and it'll create the level every time. beating the level will require mastering the words not memorizing the pattern
-- 
-
-- custom levels -> should be VERY LITTLE work for user to make levels (lessons)
-- show popular song library? should every song have a min/max duration (add an "optimize" option)
-- figure out optimal char/song_len ratio for JOURNEY, CLASSIC, and MASTER modes
 
 # FAR FUTURE
  add features to:
