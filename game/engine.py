@@ -22,7 +22,10 @@ class Level:
 
 class Game:
     SCROLL_SPEED = 300
-    
+    HIT_X = 780
+    MISSED_COLOR = (255, 0, 0)
+    COLOR = (255, 255, 255)
+
     def __init__(self, level) -> None:
         self.screen = pygame.display.set_mode((1920, 1080))
         self.clock = pygame.time.Clock()
@@ -39,13 +42,13 @@ class Game:
 
         self.level = level
         self.song = level.song
-        
+
         beatmap = generate_beatmap(
             word_list=level.word_bank,
             bpm=level.song.bpm,
             song_duration=level.song.duration
         )
-        self.rhythm = RhythmManager(beatmap)
+        self.rhythm = RhythmManager(beatmap, level.song.bpm)
         
         self.input = Input()
 
@@ -96,6 +99,7 @@ class Game:
                     break
 
                 if key == expected and self.rhythm.on_beat():
+                    # make circle disappear
                     self.show_message("Perfect!", 1)
                     self.score += 1
                     self.used_current_char = True
@@ -122,20 +126,37 @@ class Game:
         # --- draw timeline
 
         pygame.draw.line(self.screen, (255, 255, 255), (0, 540), (1920, 540), 4)
-        pygame.draw.line(self.screen, (255, 255, 0), (780, 490), (780, 590), 20)
+        pygame.draw.line(self.screen, (255, 255, 0), (self.HIT_X, 490), (self.HIT_X, 590), 20)
         
         for event in self.rhythm.beat_map:
             time_until_hit = event.timestamp - current_time
             
             if -0.5 < time_until_hit < 3.0:
-                marker_x = 960 + (time_until_hit * self.SCROLL_SPEED)
+                marker_x = self.HIT_X + (time_until_hit * self.SCROLL_SPEED)
+                if time_until_hit < 0:
+                    color = self.MISSED_COLOR
+                else:
+                    color = self.COLOR
+
                 
-                if event.char == "": #rest
-                    pygame.draw.line(self.screen, (155, 155, 255), (marker_x, 540), (marker_x, 600), 2)
-                elif event.beat_position % 4 == 0:
-                    pygame.draw.line(self.screen, (255, 255, 255), (marker_x, 490), (marker_x, 590), 4)
-                elif event.beat_position % 1 == 0:
-                    pygame.draw.line(self.screen, (100, 100, 100), (marker_x, 510), (marker_x, 570), 2)
+                if event.char != "":
+                    pygame.draw.circle(self.screen, color, (int(marker_x), 540), 12)
+
+                elif event.char == "":
+                    pygame.draw.line(self.screen, (155,155,255), (marker_x,540), (marker_x,600), 2)
+
+                current_beat = current_time / self.rhythm.beat_duration
+
+                for i in range(int(current_beat) - 8, int(current_beat) + 16):
+                    t = i * self.rhythm.beat_duration
+                    time_until = t - current_time
+                    x = self.HIT_X + time_until * self.SCROLL_SPEED
+
+                    if i % 4 == 0:
+                        pygame.draw.line(self.screen, (255,255,255), (x,490), (x,590), 4)
+                    else:
+                        pygame.draw.line(self.screen, (100,100,100), (x,510), (x,570), 2)
+
     
     def show_message(self, txt: str, secs: float):
         self.message = txt
@@ -150,3 +171,6 @@ class Game:
     
     def draw_curr_word(self, txt: str):
         self.draw_text(txt, True)
+
+def is_multiple(x: float, base: float, eps: float = 1e-3) -> bool:
+    return abs((x / base) - round(x / base)) < eps
