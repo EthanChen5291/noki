@@ -249,7 +249,7 @@ def add_build_up_word(
     if chosen in remaining_words:
         remaining_words.remove(chosen)
 
-def assign_words(word_list, num_sections, beat_duration, intensity_profile=None):
+def assign_words(word_list: list[str], num_sections: int, beat_duration: float, intensity_profile=None) -> list[list[Word]]:
     words_bank = get_words_with_snapped_durations(word_list, beat_duration)
     remaining_words = words_bank.copy()
     sections = [[] for _ in range(num_sections)]
@@ -306,7 +306,7 @@ def assign_words(word_list, num_sections, beat_duration, intensity_profile=None)
             )
 
             if intensity_profile:
-                ideal_pause = 0.5 * ideal_pause + 0.5 * base_pause
+                ideal_pause = snap_to_grid(0.5 * ideal_pause + 0.5 * base_pause)
 
             true_pressure = get_pressure_ratio(
                 remaining_words,

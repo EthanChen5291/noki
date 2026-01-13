@@ -4,11 +4,12 @@ from .beatmap_generator import CharEvent
 class RhythmManager:
     GRACE = 0.5  # secs
     
-    def __init__(self, beat_map: list[CharEvent]):
+    def __init__(self, beat_map: list[CharEvent], bpm: int):
         self.beat_map = beat_map
         self.char_event_idx = 0
         self.start_time = time.perf_counter()
         self.last_word = None
+        self.beat_duration = 60 / bpm
     
     def update(self):
         """Advance to next character if timestamp has passed"""
