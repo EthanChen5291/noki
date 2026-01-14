@@ -25,6 +25,7 @@ class CharEvent:
     timestamp: float
     word_text: str
     beat_position: float
+    hit: bool = False
     #section_idx: int
 
 # NEED TO INCORPORATE CHAR EVENT INTO RHYTHM/BEATMAP.PY
