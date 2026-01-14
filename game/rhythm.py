@@ -33,6 +33,10 @@ class RhythmManager:
         time_diff = abs(elapsed - current_event.timestamp)
         return time_diff <= self.GRACE
     
+    def current_event(self) -> CharEvent:
+        """Gets the current beat event"""
+        return self.beat_map[self.char_event_idx]
+
     def current_expected_char(self) -> str | None:
         """Get the character the player should type currently"""
         if self.char_event_idx >= len(self.beat_map):
@@ -53,7 +57,7 @@ class RhythmManager:
 
         if event.char == event.word_text[0]:
             self.last_word = event.word_text
-
+        
         return self.last_word
 
     

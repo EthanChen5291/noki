@@ -99,7 +99,8 @@ class Game:
                     break
 
                 if key == expected and self.rhythm.on_beat():
-                    # make circle disappear
+                    event = self.rhythm.current_event()
+                    event.hit = True
                     self.show_message("Perfect!", 1)
                     self.score += 1
                     self.used_current_char = True
@@ -139,7 +140,7 @@ class Game:
                     color = self.COLOR
 
                 
-                if event.char != "":
+                if event.char != "" and not event.hit:
                     pygame.draw.circle(self.screen, color, (int(marker_x), 540), 12)
 
                 elif event.char == "":
@@ -171,6 +172,3 @@ class Game:
     
     def draw_curr_word(self, txt: str):
         self.draw_text(txt, True)
-
-def is_multiple(x: float, base: float, eps: float = 1e-3) -> bool:
-    return abs((x / base) - round(x / base)) < eps
