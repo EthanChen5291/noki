@@ -515,18 +515,15 @@ def generate_beatmap(word_list : list[str], bpm : int, song_duration : int, audi
 
     avg_word_len = sum(len(w) for w in word_list) / len(word_list)
     
-    max_words = get_max_words(beat_duration, num_sections, avg_word_len)
-    target_words = estimate_required_words(song_duration, avg_word_len, TARGET_CPS)
-    
     total_beats = num_sections * BEATS_PER_SECTION
     avg_word_beats = (avg_word_len / TARGET_CPS) / beat_duration
     beats_per_word_with_pause = avg_word_beats + IDEAL_PAUSE
     
     target_words = int(total_beats / beats_per_word_with_pause)
-    target_words = min(target_words, max_words)
     
     # reduce by 10-20% to ensure space
-    target_words = int(target_words * 0.85)
+    target_words = int(target_words * 0.9)
+    target_words = max(target_words, 10) # 10 IS A FILLER UNTIL LATER
     
     expanded = expand_word_list(word_list, target_words, shuffle_each_cycle=True)
     sections_words : list[list[Word]] = assign_words(expanded, 

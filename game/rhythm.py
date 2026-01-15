@@ -2,7 +2,7 @@ import time
 from .beatmap_generator import CharEvent
 
 class RhythmManager:
-    GRACE = 0.5  # secs
+    GRACE = 0.3  # secs
     
     def __init__(self, beat_map: list[CharEvent], bpm: int):
         self.beat_map = beat_map

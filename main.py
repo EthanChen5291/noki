@@ -3,7 +3,7 @@ from game.engine import Game, Level, Song
 def main():
     song = Song(bpm=120, duration=149)
 
-    wb1 = ["cat", "test", "me", "rhythm", "beat"]
+    wb1 = ["cat", "test", "me", "rhythm", "beat", "fish", "moon", "derp", "noki", "go"]
 
     tutorial = Level(
         bg_path=None,
