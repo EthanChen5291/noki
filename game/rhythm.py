@@ -31,7 +31,7 @@ class RhythmManager:
         current_event = self.beat_map[self.char_event_idx]
         
         time_diff = abs(elapsed - current_event.timestamp)
-        return time_diff <= self.GRACE
+        return (time_diff <= self.GRACE) 
     
     def current_event(self) -> CharEvent:
         """Gets the current beat event"""
