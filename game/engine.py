@@ -27,6 +27,7 @@ class Game:
     HIT_X = 780
     MISSED_COLOR = (255, 0, 0)
     COLOR = (255, 255, 255)
+    UNDERLINE_LEN = 40
 
     def __init__(self, level) -> None:
         self.screen = pygame.display.set_mode((1920, 1080))
@@ -170,9 +171,11 @@ class Game:
                     self.misses += 1
                     self.used_current_char = True
         
+
         self.render_timeline()
         
-        # draw score/ misses
+        # ----- SCORE / MISSES
+
         score_text = self.font.render(f"Score: {self.score}", True, (255, 255, 255))
         miss_text = self.font.render(f"Misses: {self.misses}", True, (255, 100, 100))
         self.screen.blit(score_text, (1300, 750))
@@ -181,6 +184,9 @@ class Game:
         if self.message and self.message_duration > 0:
             self.draw_text(self.message, False)
             self.message_duration -= dt
+
+
+    # --- RENDER TIMELINE 
 
     def render_timeline(self):
         current_time = time.perf_counter() - self.rhythm.start_time
@@ -201,9 +207,11 @@ class Game:
                 # underline current character
                 if self.rhythm.char_event_idx < len(self.rhythm.beat_map):
                     current_event = self.rhythm.beat_map[self.rhythm.char_event_idx]
-                    if current_event.word_text == current_word and current_event.char == char:
+                    if current_event.word_text == current_word and current_event.char == char and current_event.char_idx == i:
+                        centering_offset = -10 # magic num for now
+                        line_x = char_x + centering_offset
                         pygame.draw.line(self.screen, (255, 255, 255), 
-                                       (char_x, 200), (char_x + 40, 200), 3)
+                                       (line_x, 200), (line_x + self.UNDERLINE_LEN, 200), 3)
         
         # --- draw timeline
         timeline_y = 380
