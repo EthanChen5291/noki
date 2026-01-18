@@ -124,7 +124,7 @@ class Game:
         self.update_cat_video(dt)
         if self.cat_frame:
             cat_scaled = pygame.transform.scale(self.cat_frame, (230, 250))
-            self.screen.blit(cat_scaled, (410, 550))
+            self.screen.blit(cat_scaled, (390, 550))
         
         events = pygame.event.get()
         for event in events:
