@@ -24,6 +24,7 @@ class CharEvent:
     char: str
     timestamp: float
     word_text: str
+    char_idx: int
     beat_position: float
     hit: bool = False
     #section_idx: int
@@ -480,12 +481,13 @@ def create_char_events(section_words : list[list[Word]], beat_duration : float) 
             if word.text != "":
                 char_beat_duration = word.snapped_beats / len(word.text)
 
-                for char in word.text:
+                for i, char in enumerate(word.text):
                     char_events.append(
                         CharEvent(
                             char=char,
                             timestamp=curr_beat * beat_duration,
                             word_text=word.text,
+                            char_idx=i,
                             beat_position=curr_beat,
                         )
                     )
