@@ -383,12 +383,14 @@ def assign_words(word_list: list[str], num_sections: int, beat_duration: float, 
             pause = min(ideal_pause, remaining_beats)
             pause = snap_to_grid(pause, SNAP_GRID)
 
-            sections[section_idx].append(
-                Word("", RestType.PAUSE, None, pause, 0)
-            )
+            sections[section_idx].append(make_pause(pause))
 
             remaining_beats -= pause
 
+        if section_idx < num_sections - 1:
+            section_pause = snap_to_grid(base_pause * 1.5, SNAP_GRID)
+            sections[section_idx].append(make_pause(section_pause))
+            
     return sections
 
 
@@ -535,6 +537,7 @@ def generate_beatmap(word_list : list[str], bpm : int, song_duration : int, audi
 
     vary_pause_duration(sections_words)
     balance_section_timing(sections_words)
+    add_missing_pauses(sections_words, MIN_PAUSE)
 
     #should add cps outlier check in here + other tuning stuff 
     # if snapped_cps < MIN_CPS or snapped_cps > MAX_CPS:
@@ -559,6 +562,50 @@ def remove_beatmap_event(beatmap: list[CharEvent], word: str) -> list[CharEvent]
         return None
 
     return [e for e in beatmap if e.word_text != word]
+
+
+def get_missing_pause_indices(sections_words: list[list[Word]]) -> list[tuple[int, int]]:
+    """
+    Returns (section_idx, word_idx) where a pause should be inserted
+    BEFORE word_idx.
+    """
+    indices: list[tuple[int, int]] = []
+
+    for section_idx, section in enumerate(sections_words):
+        last_word = None
+        for word_idx, word in enumerate(section):
+            if last_word is not None:
+                if last_word.rest_type is None and word.rest_type is None:
+                    indices.append((section_idx, word_idx))
+            last_word = word
+
+    return indices
+                
+def make_pause(pause_beats: float) -> Word:
+    return Word(
+        text="",
+        rest_type=RestType.PAUSE,
+        ideal_beats=pause_beats,
+        snapped_beats=pause_beats,
+        snapped_cps=0.0
+    )
+
+def add_missing_pauses(sections_words: list[list[Word]], pause_beats: float
+) -> list[list[Word]]:
+    """Adds pauses of 'pause_beats' in areas with no gaps between words."""
+    indices = get_missing_pause_indices(sections_words)
+
+    for section_idx, word_idx in reversed(indices):
+        pause = make_pause(pause_beats)
+        sections_words[section_idx].insert(word_idx, pause)
+
+    return sections_words
+                    
+        
+
+                    
+                
+
 
 def align_beatmap_to_song_duration(
     sections_words: list[list[Word]],

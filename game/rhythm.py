@@ -2,13 +2,14 @@ import time
 from .beatmap_generator import CharEvent
 
 class RhythmManager:
-    GRACE = 0.2  # secs
+    GRACE = 1  # secs
     
     def __init__(self, beat_map: list[CharEvent], bpm: int):
         self.beat_map = beat_map
         self.char_event_idx = 0
         self.start_time = time.perf_counter()
         self.last_word = None
+        self.last_char = None
         self.beat_duration = 60 / bpm
     
     def update(self):
@@ -49,6 +50,18 @@ class RhythmManager:
         
         return event.char
     
+    def current_expected_index(self) -> int | None:
+        """Get the character the player should type currently"""
+        if self.char_event_idx >= len(self.beat_map):
+            return None
+        
+        event = self.beat_map[self.char_event_idx]
+        
+        if event.char == "":
+            return None
+        
+        return event.char_idx
+    
     def current_expected_word(self) -> str | None:
         if self.char_event_idx >= len(self.beat_map):
             return None
@@ -59,7 +72,6 @@ class RhythmManager:
             self.last_word = event.word_text
         
         return self.last_word
-
     
     def is_finished(self) -> bool:
         """Check if song is complete"""
