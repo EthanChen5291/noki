@@ -28,6 +28,11 @@ class Game:
     MISSED_COLOR = (255, 0, 0)
     COLOR = (255, 255, 255)
     UNDERLINE_LEN = 40
+    
+    HIT_MARKER_Y_OFFSET = -70
+    HIT_MARKER_X_OFFSET = -40
+    HIT_MARKER_LENGTH = 200
+    HIT_MARKER_WIDTH = 20
 
     def __init__(self, level) -> None:
         self.screen = pygame.display.set_mode((1920, 1080))
@@ -54,9 +59,9 @@ class Game:
         self.background = pygame.image.load(bg_file).convert()
         self.background = pygame.transform.scale(self.background, (1512, 982))
         
-        machine_file = os.path.join(assets_path, 'noki_machinev1.png')
-        self.machine = pygame.image.load(machine_file).convert_alpha()
-        self.machine = pygame.transform.scale(self.machine, (300, 350))
+        #machine_file = os.path.join(assets_path, 'noki_machinev1.png')
+        #self.machine = pygame.image.load(machine_file).convert_alpha()
+        #self.machine = pygame.transform.scale(self.machine, (300, 350))
         
         timeline_file = os.path.join(assets_path, 'noki_timeline.png')
         self.timeline_img = pygame.image.load(timeline_file).convert_alpha()
@@ -120,7 +125,7 @@ class Game:
         self.screen.blit(self.background, (0, 0))
         
         # cat machine
-        self.screen.blit(self.machine, (80, 480))
+        #self.screen.blit(self.machine, (80, 480))
         # CAT
         self.update_cat_video(dt)
         if self.cat_frame:
@@ -215,8 +220,8 @@ class Game:
         
         # --- draw timeline
         timeline_y = 380
-        timeline_start_x = 340
-        timeline_end_x = 1400
+        timeline_start_x = 300
+        timeline_end_x = 1500
         
         pygame.draw.line(self.screen, (255, 255, 255), 
                         (timeline_start_x, timeline_y), 
@@ -224,17 +229,29 @@ class Game:
         
         # hit marker
         hit_marker_x = self.HIT_X
+        hit_marker_x -= self.HIT_MARKER_X_OFFSET
+        #shift to include grace period
         
-        pygame.draw.line(self.screen, (255, 255, 0), 
-                        (hit_marker_x, timeline_y - 50), 
-                        (hit_marker_x, timeline_y + 50), 20)
+        pygame.draw.line(self.screen, (155, 255, 100), 
+                        (hit_marker_x - self.HIT_MARKER_X_OFFSET, timeline_y), 
+                        (hit_marker_x + self.HIT_MARKER_X_OFFSET, timeline_y), self.HIT_MARKER_WIDTH) # blip hitmarker img to it
+        
+        pygame.draw.line(self.screen, (0, 180, 220), 
+                        (hit_marker_x, timeline_y  - self.HIT_MARKER_Y_OFFSET), 
+                        (hit_marker_x, timeline_y + self.HIT_MARKER_Y_OFFSET), int(self.HIT_MARKER_WIDTH/2))
         
         # --- draw beat markers/notes
+        # take account of grace
+        grace = (self.rhythm.GRACE * self.SCROLL_SPEED)
+        hit_marker_x -= grace/6
+        
         for event in self.rhythm.beat_map:
             time_until_hit = event.timestamp - current_time
             
             # --- calculate position
-            if -0.5 < time_until_hit < 5.0:
+
+            if -0.75 < time_until_hit < 5.0:
+                
                 marker_x = hit_marker_x + (time_until_hit * self.SCROLL_SPEED)
                 
                 if timeline_start_x <= marker_x <= timeline_end_x:
