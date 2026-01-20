@@ -24,7 +24,7 @@ class Level:
 
 class Game:
     SCROLL_SPEED = 300
-    HIT_X = 780
+    HIT_X = 730
     MISSED_COLOR = (255, 0, 0)
     COLOR = (255, 255, 255)
     UNDERLINE_LEN = 40
