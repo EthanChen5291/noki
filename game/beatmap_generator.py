@@ -390,7 +390,7 @@ def assign_words(word_list: list[str], num_sections: int, beat_duration: float, 
         if section_idx < num_sections - 1:
             section_pause = snap_to_grid(base_pause * 1.5, SNAP_GRID)
             sections[section_idx].append(make_pause(section_pause))
-            
+
     return sections
 
 
@@ -600,12 +600,6 @@ def add_missing_pauses(sections_words: list[list[Word]], pause_beats: float
         sections_words[section_idx].insert(word_idx, pause)
 
     return sections_words
-                    
-        
-
-                    
-                
-
 
 def align_beatmap_to_song_duration(
     sections_words: list[list[Word]],
