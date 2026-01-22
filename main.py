@@ -1,7 +1,7 @@
 from game.engine import Game, Level, Song
 
 def main():
-    song = Song(bpm=120, duration=149)
+    song = Song(bpm=120, duration=149, path="assets/audios/noki_bamsam_file.wav")
 
     wb1 = ["cat", "test", "me", "rhythm", "beat", "fish", "moon", "derp", "noki", "yeah"]
 
