@@ -11,9 +11,10 @@ from .beatmap_generator import generate_beatmap
 pygame.init()
 
 class Song:
-    def __init__(self, bpm, duration):
+    def __init__(self, path, bpm, duration):
         self.bpm = bpm
         self.duration = duration
+        self.file_path = path
 
 class Level:
     def __init__(self, bg_path, cat_sprite_path, word_bank, song):
@@ -51,6 +52,10 @@ class Game:
 
         self.level = level
         self.song = level.song
+        self.file_path = level.song.file_path
+        pygame.mixer.init()
+        pygame.mixer.music.load(self.file_path)
+        pygame.mixer.music.play()
 
         # --- load assets
         assets_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'images')
