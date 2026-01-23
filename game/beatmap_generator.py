@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from typing import Optional
 from enum import Enum, auto
 from analysis.audio_analysis import analyze_song_intensity, get_bpm, get_song_info, IntensityProfile
-from engine import Song
 from . import constants as C
 from . import models as M
 
@@ -561,9 +560,9 @@ def get_max_words(beat_duration: float, num_sections: int, avg_word_len: float) 
 
     return int(max_chars_total / avg_word_len)
 
-def generate_beatmap(word_list : list[str], song_duration : int, song: Song):
+def generate_beatmap(word_list : list[str], song: M.Song):
     beat_duration = 60 / song.bpm
-    num_sections = int(song_duration / (beat_duration * C.BEATS_PER_SECTION))
+    num_sections = int(song.duration / (beat_duration * C.BEATS_PER_SECTION))
 
     intensity_profile: Optional[IntensityProfile] = None
     if song.file_path:

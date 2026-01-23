@@ -30,14 +30,12 @@ class CharEvent:
 # --- engine 
 
 class Song:
-    def __init__(self, bpm, path, duration):
+    def __init__(self, bpm, duration, file_path):
         self.bpm = bpm
         self.duration = duration
-        self.file_path = path
+        self.file_path = file_path
 
 class Level:
-    def __init__(self, bg_path, cat_sprite_path, word_bank, song_path):
-        self.bg_path = bg_path
-        self.cat_sprite_path = cat_sprite_path
+    def __init__(self, word_bank: list[str], song_path: str):
         self.word_bank = word_bank
         self.song_path = song_path

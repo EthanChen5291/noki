@@ -7,14 +7,13 @@ def main():
     wb1 = ["cat", "test", "me", "rhythm", "beat", "fish", "moon", "derp", "noki", "yeah"]
 
     tutorial = Level(
-        bg_path=None,
-        cat_sprite_path=None,
         word_bank=wb1,
         song_path=song_path
         )
     
+    print("Creating game...")
     game = Game(level=tutorial)
-
+    print("Game created, starting run loop...")
     game.run()
 
 if __name__ == "__main__":
