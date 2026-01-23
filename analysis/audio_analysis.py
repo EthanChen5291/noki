@@ -3,6 +3,23 @@ from __future__ import annotations
 import numpy as np
 import librosa
 from dataclasses import dataclass
+from enum import Enum, auto
+from game.beatmap_generator import BEATS_PER_MEASURE
+
+STRONG_INTENSITY_THRESHOLD = 70 # melodies / strong beats, louder than 70%
+MEDIUM_INTENSITY_THRESHOLD = 40 # louder than 40% 
+@dataclass(frozen=True)
+class SubBeatInfo():
+    """Beat-level timestamps, raw intensities, and normalized intensity levels"""
+    time: float
+    raw_intensity: float
+    level: SubBeatIntensity
+
+class SubBeatIntensity(Enum):
+    """Normalized beat-level intensity relative to each beat's respective measure intensity"""
+    WEAK = auto()
+    MEDIUM = auto()
+    STRONG = auto()
 
 @dataclass(frozen=True)
 class IntensityProfile:
@@ -47,7 +64,7 @@ def analyze_song_intensity(audio_path: str, bpm: int, beats_per_section: int = 1
 # - calculate average measure intensity, set it to 1
 # - normalize all the measure densities to avg and output a list of ratios
 
-def get_sub_beat_times(beat_times : list[float], n : int = 4) -> None | list[float]:
+def get_sb_times(beat_times : list[float], n : int = 4) -> list[float]:
     """Returns a list of times of beats which each beat cut into 'n' subdivisions. 
     
     If subdivisions == 4, a list with four values per beat for each beat in beat_times
@@ -55,39 +72,147 @@ def get_sub_beat_times(beat_times : list[float], n : int = 4) -> None | list[flo
     """
     #separates onset_times into sixteenth note intervals 
     if not beat_times:
-        return None
+        return []
 
-    sub_beat_times = []
+    sb_times = []
     
     for i in range(len(beat_times) - 1):
         t0, t1 = beat_times[i], beat_times[i + 1]
         for k in range(n):
             sub_t = t0 + (k / n) * (t1 - t0)
-            sub_beat_times.append(sub_t)
+            sb_times.append(sub_t)
     
-    return sub_beat_times
+    return sb_times
     
 def beat_intensity_at_time(t, onset_env, onset_times, window=0.05):
     "Fetches the beat intensity around interval 'window' of time 't'"
     mask = (onset_times >= t - window) & (onset_times <= t + window)
     return float(onset_env[mask].mean()) if np.any(mask) else 0.0
+    
+def convert_to_measure_intensities(beat_intensities: list[float]) -> list[float]:
+    "Returns average measure intensities for all measures (BEATS_PER_MEASURE) in beat_intensities."
+    "Discards remainder."
+    if not beat_intensities:
+        return []
+    
+    measure_intensities : list[float] = []
+    current_measure_intensity = 0
 
-def get_sub_beat_intensities(beat_times, onset_env, onset_times, n: int = 4, window : float = 0.05) -> None | list:
+    for i, intensity in enumerate(beat_intensities):
+        if i % BEATS_PER_MEASURE == 0:
+            measure_intensities.append(current_measure_intensity / BEATS_PER_MEASURE)
+            current_measure_intensity = 0
+        
+        current_measure_intensity += intensity
+
+    return measure_intensities
+
+    # what if there is an incomplete measure
+
+def get_sb_intensities(sb_times, onset_env, onset_times, window : float = 0.05) -> list[float]:
     "Returns the all sub_beat_intensities around 'window' of each sub-beat. "
     "A sub-beat has each beat in 'beat_times' cut into 'n' subdivisions"
-    sub_beat_times = get_sub_beat_times(beat_times, n)
-
     sb_intensities : list[float] = []
 
-    if not sub_beat_times:
-        return None
+    if not sb_times:
+        return []
     
-    for t in sub_beat_times:
+    for t in sb_times:
         intensity = beat_intensity_at_time(t, onset_env, onset_times, window)
         sb_intensities.append(intensity)
     
     return sb_intensities
+
+def group_sb_intensities(beat_intensities: list[float], n: int) -> list[list[float]]:
+    "Groups subbeats into groups of size n. Discards remainder, if any."
+    if not beat_intensities:
+        return []
     
+    group_intensities: list[list[float]] = []
+    current_group_intensity: list[float] = []
+
+    for i, intensity in enumerate(beat_intensities):
+        if i % n == 0 and i != 0:
+            group_intensities.append(current_group_intensity)
+            current_group_intensity: list[float] = []
+        
+        current_group_intensity.append(intensity)
+
+    return group_intensities
+
+def first_greater_than_percentile(lst: list[float], p: float) -> float:
+    "Returns minimum value in 'lst' >= the 'p'th percentile. "
+    "Does not preserve order."
+    if not lst:
+        raise ValueError("Cannot compute percentile of an empty list")
+    
+    sorted_lst = sorted(lst)
+    
+    idx = int(len(lst) * (p/100))
+    idx = min(idx, len(lst) - 1)
+
+    return sorted_lst[idx]
+
+def normalize_sb_intensities(
+        beat_times: list[float], 
+        beat_intensities: list[float], 
+        onset_env: list[float], 
+        onset_times: list[float],
+        n: int = BEATS_PER_MEASURE
+    ) -> list[SubBeatInfo]:
+    """
+    Splits each beat_times into n slices (sub-beats). 
+    
+    Returns a list for all sub-beats, each with:
+    - sub-beat timestamp
+    - raw intensity
+    - normalized level (e.g WEAK, MEDIUM, STRONG)
+    """
+    if not beat_intensities:
+        return []
+    
+    sb_times = get_sb_times(beat_times, n)
+    sb_intensities = get_sb_intensities(sb_times, onset_env, onset_times)
+    group_intensities = group_sb_intensities(sb_intensities, BEATS_PER_MEASURE * n) # group into measures
+
+    all_sb_info: list[SubBeatInfo] = []
+    sb_index = 0
+
+    for i, group in enumerate(group_intensities):
+        if not group:
+            continue
+        
+        strong_threshold = first_greater_than_percentile(group, STRONG_INTENSITY_THRESHOLD)
+        medium_threshold = first_greater_than_percentile(group, MEDIUM_INTENSITY_THRESHOLD)
+
+        for intensity in group:
+            curr_measure_subbeats = group_intensities[i]
+
+            if intensity >= strong_threshold:
+                level = SubBeatIntensity.STRONG
+            elif intensity >= medium_threshold:
+                level = SubBeatIntensity.MEDIUM
+            else:
+                level = SubBeatIntensity.WEAK # add empty for silence?
+            
+            time = sb_times[sb_index]
+            sb_index += 1
+
+            sb_info = SubBeatInfo(time, intensity, level)
+            all_sb_info.append(sb_info)
+    
+    return all_sb_info
+    
+# THEN, DO FREQUENCY CHECK ON THE NORMALIZED SB INTENSITIES. maybe split into categories based off wavelength ranges?
+    
+
+    
+
+
+    
+# check if difference between last exceeds THRESHOLD. how to calculate threshold?
+# check average measure beat intensity through beat_intensities. 
+
 # def get_peaks() -> finds onset peaks at every sixteenth note that exceed a certain threshold 
 # (threshold should be calculated based off avg onset difference i think)
 
