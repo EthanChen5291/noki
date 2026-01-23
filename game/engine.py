@@ -1,5 +1,6 @@
 import pygame
-import cv2
+import imageio
+import numpy as np
 import sys
 import time
 import os
@@ -44,15 +45,11 @@ class Game:
         self.song = level.song
         self.file_path = level.song.file_path
         pygame.mixer.init()
-        pygame.mixer.music.load(self.file_path)
+        pygame.mixer.music.load(self.song.file_path)
         pygame.mixer.music.play()
 
         # --- load assets
         assets_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'images')
-        
-        bg_file = os.path.join(assets_path, 'noki_bg.png')
-        self.background = pygame.image.load(bg_file).convert()
-        self.background = pygame.transform.scale(self.background, (1512, 982))
         
         #machine_file = os.path.join(assets_path, 'noki_machinev1.png')
         #self.machine = pygame.image.load(machine_file).convert_alpha()
@@ -63,14 +60,23 @@ class Game:
         self.timeline_img = pygame.transform.scale(self.timeline_img, (1920, 200))
         
         cat_file = os.path.join(assets_path, 'noki_cat.mov')
-        self.cat_video = cv2.VideoCapture(cat_file)
+        self.cat_reader = imageio.get_reader(cat_file)
+        self.cat_frame_index = 0
 
+        self.cat_frames = []
+        try:
+            for frame in self.cat_reader.iter_data():
+                self.cat_frames.append(frame)
+        except Exception as e:
+            print(f"Error loading cat frames: {e}")
+        finally:
+            self.cat_reader.close()
+
+        self.total_frames = len(self.cat_frames)
         self.beat_duration = 60 / self.song.bpm
-        total_frames = int(self.cat_video.get(cv2.CAP_PROP_FRAME_COUNT))
-        
-        # loop repeats every 2 beats
+
         loop_duration = self.beat_duration * 2
-        self.cat_fps = total_frames / loop_duration if loop_duration > 0 else 30
+        self.cat_fps = self.total_frames / loop_duration if loop_duration > 0 else 30
         self.cat_frame_time = 1.0 / self.cat_fps if self.cat_fps > 0 else 1.0 / 30
         self.cat_time_accumulator = 0.0
         self.cat_frame = None
@@ -91,37 +97,27 @@ class Game:
             self.update(dt)
             pygame.display.flip()
 
-        self.cat_video.release()
         pygame.quit()
         sys.exit()
 
     def update_cat_video(self, dt: float):
-        """Update and loop cat video synced to beat"""
         self.cat_time_accumulator += dt
-        
+
         if self.cat_time_accumulator >= self.cat_frame_time:
             self.cat_time_accumulator = 0.0
-            
-            ret, frame = self.cat_video.read()
-            
-            if not ret:
-                self.cat_video.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                ret, frame = self.cat_video.read()
-            
-            if ret:
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-                frame = cv2.flip(frame, 1)
-                
-                self.cat_frame = pygame.surfarray.make_surface(frame)
+
+            frame = self.cat_frames[self.cat_frame_index]
+            self.cat_frame_index = (self.cat_frame_index + 1) % len(self.cat_frames)
+
+            frame = np.rot90(frame)
+            frame = np.flipud(frame)
+            self.cat_frame = pygame.surfarray.make_surface(frame)
+
 
     def update(self, dt: float) -> None:
-        # bg
-        self.screen.blit(self.background, (0, 0))
+        self.screen.fill((0,0,0))
         
-        # cat machine
-        #self.screen.blit(self.machine, (80, 480))
-        # CAT
+        # --- CAT
         self.update_cat_video(dt)
         if self.cat_frame:
             cat_scaled = pygame.transform.scale(self.cat_frame, (230, 250))
