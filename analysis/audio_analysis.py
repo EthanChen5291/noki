@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import librosa
 import game.constants as C
+import game.models as M
 from dataclasses import dataclass
 from enum import Enum, auto
 
@@ -26,6 +27,27 @@ class IntensityProfile:
     """Beat-level and section-level intensity curves (higher = more activity)"""
     beat_intensities: list[float]
     section_intensities: list[float]
+
+def get_bpm(audio_path: str) -> int:
+    """Returns the tempo in BPM"""
+    y, sr = librosa.load(audio_path, sr=None)
+    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+    
+    if isinstance(tempo, np.ndarray):
+        return int(tempo[0])
+    return int(tempo)
+
+def get_duration(audio_path: str) -> int:
+    """Returns the song duration in seconds"""
+    y, sr = librosa.load(audio_path, sr=None)
+    duration = librosa.get_duration(y=y, sr=sr)
+    return int(duration)
+
+def get_song_info(audio_path: str) -> M.Song:
+    """Gets the song at 'audio_path's duration and tempo (BPM)"""
+    bpm = get_bpm(audio_path)
+    duration = get_duration(audio_path)
+    return M.Song(bpm, duration, audio_path)
 
 def analyze_song_intensity(audio_path: str, bpm: int, beats_per_section: int = 16) -> IntensityProfile:
     y, sr = librosa.load(audio_path, sr=None)

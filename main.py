@@ -1,15 +1,16 @@
-from game.engine import Game, Level, Song
+from game.engine import Game
+from game.models import Level, Song
 
 def main():
-    song = Song(bpm=120, duration=149, path="assets/audios/noki_bamsam_file.wav")
-
+    song_path = "assets/audios/noki_bamsam_file.wav"
+    # SHOULD JUST DO SONG_PATH then have a function that converts it into a song data type
     wb1 = ["cat", "test", "me", "rhythm", "beat", "fish", "moon", "derp", "noki", "yeah"]
 
     tutorial = Level(
         bg_path=None,
         cat_sprite_path=None,
         word_bank=wb1,
-        song=song
+        song_path=song_path
         )
     
     game = Game(level=tutorial)

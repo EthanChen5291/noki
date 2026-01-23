@@ -8,22 +8,22 @@ import os
 from . import constants as C
 from .rhythm import RhythmManager
 from .input import Input
-from .beatmap_generator import generate_beatmap
+from .beatmap_generator import generate_beatmap, get_song_info
 
 pygame.init()
 
 class Song:
-    def __init__(self, path, bpm, duration):
+    def __init__(self, bpm, path, duration):
         self.bpm = bpm
         self.duration = duration
         self.file_path = path
 
 class Level:
-    def __init__(self, bg_path, cat_sprite_path, word_bank, song):
+    def __init__(self, bg_path, cat_sprite_path, word_bank, song_path):
         self.bg_path = bg_path
         self.cat_sprite_path = cat_sprite_path
         self.word_bank = word_bank
-        self.song = song
+        self.song_path = song_path
 
 class Game:
     def __init__(self, level) -> None:
@@ -81,10 +81,11 @@ class Game:
         self.cat_time_accumulator = 0.0
         self.cat_frame = None
 
+        song = get_song_info(level.file_path)
         beatmap = generate_beatmap(
             word_list=level.word_bank,
-            bpm=level.song.bpm,
-            song_duration=level.song.duration
+            song_duration=level.song.duration,
+            song=song
         )
         self.rhythm = RhythmManager(beatmap, level.song.bpm)
         

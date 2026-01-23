@@ -2,33 +2,12 @@ import random
 from dataclasses import dataclass
 from typing import Optional
 from enum import Enum, auto
-from analysis.audio_analysis import analyze_song_intensity, IntensityProfile
+from analysis.audio_analysis import analyze_song_intensity, get_bpm, get_song_info, IntensityProfile
+from engine import Song
 from . import constants as C
+from . import models as M
 
 # NOT YET FULLY INTEGRATED YET
-
-class RestType(Enum):
-     PAUSE = auto()
-     FILL = auto()
-
-@dataclass
-class Word:
-    """Represents a word with rhythm timing info"""
-    text: str
-    rest_type: Optional[RestType]
-    ideal_beats: Optional[float]
-    snapped_beats: float
-    snapped_cps: float
-
-@dataclass
-class CharEvent:
-    char: str
-    timestamp: float
-    word_text: str
-    char_idx: int
-    beat_position: float
-    hit: bool = False
-    #section_idx: int
 
 # NEED TO INCORPORATE CHAR EVENT INTO RHYTHM/BEATMAP.PY
 
@@ -70,10 +49,10 @@ def get_beat_duration(bpm: int) -> float:
      
      return 60 / bpm
 
-def get_words_with_snapped_durations(words: list[str], beat_duration: float) -> list[Word]:
+def get_words_with_snapped_durations(words: list[str], beat_duration: float) -> list[M.Word]:
 	"""Returns (word, ideal_beats, snapped_beats, snapped_cps)"""
 	return [
-		Word(
+		M.Word(
 		    text=word,
             rest_type=None,
 		    ideal_beats=(ideal_beats :=  len(word) / C.TARGET_CPS / beat_duration),
@@ -83,7 +62,7 @@ def get_words_with_snapped_durations(words: list[str], beat_duration: float) -> 
         for word in words
     ]
 
-def get_raw_pressure(remaining_words: list[Word], remaining_sections: int, leftover_beats: float):
+def get_raw_pressure(remaining_words: list[M.Word], remaining_sections: int, leftover_beats: float):
 	"""Calculates pressure WITHOUT considering pauses (Step 1)"""
 	if remaining_sections <= 0 or not remaining_words:
 		return 0.0
@@ -93,7 +72,7 @@ def get_raw_pressure(remaining_words: list[Word], remaining_sections: int, lefto
 	return total_word_beats / total_avail_beats
 
 def get_ideal_pause_duration(
-    remaining_words: list[Word], 
+    remaining_words: list[M.Word], 
     remaining_sections: int, 
     leftover_beats: float
     ) -> float:
@@ -121,7 +100,7 @@ def get_ideal_pause_duration(
 
     return final_pause
 
-def get_pressure_ratio(remaining_words : list[Word], remaining_sections : int, leftover_beats : float, pause_duration: float) -> float:
+def get_pressure_ratio(remaining_words : list[M.Word], remaining_sections : int, leftover_beats : float, pause_duration: float) -> float:
     """Calculates pressure of remaining song beats including pauses."""
     if remaining_sections <= 0 or not remaining_words:
         return 0.0
@@ -134,13 +113,13 @@ def get_pressure_ratio(remaining_words : list[Word], remaining_sections : int, l
 
     return (total_pause_beats + total_word_beats) / total_avail_beats
 
-def get_section_remaining_beats(section_words : list[Word]) -> float:
+def get_section_remaining_beats(section_words : list[M.Word]) -> float:
 	"""Returns remaining beats. section_words should include pauses."""
 	total_word_duration = sum(word.snapped_beats for word in section_words)
 	return C.BEATS_PER_SECTION - total_word_duration
 
-def select_best_word(remaining_beats: float, words_bank: list[Word], remaining_words: list[Word], 
-                     true_pressure : float, prepping_for_build_up: bool) -> Word:
+def select_best_word(remaining_beats: float, words_bank: list[M.Word], remaining_words: list[M.Word], 
+                     true_pressure : float, prepping_for_build_up: bool) -> M.Word:
     if prepping_for_build_up:
         remaining_beats = remaining_beats % C.BEATS_PER_MEASURE # beats left in measure
 
@@ -150,7 +129,7 @@ def select_best_word(remaining_beats: float, words_bank: list[Word], remaining_w
         if random.random() < 0.3 and words_bank:
             return random.choice(words_bank)
 
-        fill = Word("", RestType.FILL, None, remaining_beats, 0.0)
+        fill = M.Word("", M.RestType.FILL, None, remaining_beats, 0.0)
         return fill 
 
     viable = [w for w in candidates if abs(w.snapped_cps - C.TARGET_CPS) <= C.CPS_TOLERANCE]
@@ -233,9 +212,9 @@ def get_current_measure(section_remaining_beats: float) -> int:
     return int(beat_in_section // C.BEATS_PER_MEASURE)
 
 def add_build_up_word(
-    section_words: list["Word"],
-    word_bank: list["Word"],
-    remaining_words: list["Word"],
+    section_words: list[M.Word],
+    word_bank: list[M.Word],
+    remaining_words: list[M.Word],
 ) -> None:
     """
     Adds a 4-letter build-up word as a single Word with snapped_beats=4.
@@ -244,14 +223,14 @@ def add_build_up_word(
       2) word_bank 4-letter
       3) fallback BUILD_UP_WORDS
     """
-    def pick_4_letter(pool: list[Word]) -> Optional[Word]:
+    def pick_4_letter(pool: list[M.Word]) -> Optional[M.Word]:
         candidates = [w for w in pool if (w.rest_type is None and len(w.text) == 4)]
         return random.choice(candidates) if candidates else None
 
     chosen = pick_4_letter(remaining_words) or pick_4_letter(word_bank)
 
     if chosen is None:
-        chosen = Word(
+        chosen = M.Word(
             text=random.choice(C.BUILD_UP_WORDS),
             rest_type=None,
             ideal_beats=4.0,
@@ -265,7 +244,7 @@ def add_build_up_word(
     if chosen in remaining_words:
         remaining_words.remove(chosen)
 
-def assign_words(word_list: list[str], num_sections: int, beat_duration: float, intensity_profile=None) -> list[list[Word]]:
+def assign_words(word_list: list[str], num_sections: int, beat_duration: float, intensity_profile=None) -> list[list[M.Word]]:
     words_bank = get_words_with_snapped_durations(word_list, beat_duration)
     remaining_words = words_bank.copy()
     sections = [[] for _ in range(num_sections)]
@@ -374,7 +353,7 @@ def assign_words(word_list: list[str], num_sections: int, beat_duration: float, 
     return sections
 
 
-def vary_pause_duration(sections_words: list[list[Word]]) -> list[list[Word]]:
+def vary_pause_duration(sections_words: list[list[M.Word]]) -> list[list[M.Word]]:
     """
     Varies pause durations in sections_words based on neighboring word lengths.
     Alternates increments/decrements to maintain section balance.
@@ -385,7 +364,7 @@ def vary_pause_duration(sections_words: list[list[Word]]) -> list[list[Word]]:
     with "should-increment". What if the word_list has two long words in a row?? 
     """
     for section in sections_words:
-        pauses_with_indices = [(i, w) for i, w in enumerate(section) if w.rest_type == RestType.PAUSE]
+        pauses_with_indices = [(i, w) for i, w in enumerate(section) if w.rest_type == M.RestType.PAUSE]
         
         if not pauses_with_indices:
             continue
@@ -428,7 +407,7 @@ def get_pause_increment(word_len: int) -> float:
     else:
         return -0.25 
     
-def balance_section_timing(section_words: list[list[Word]], target_beats: float = C.BEATS_PER_SECTION) -> None:
+def balance_section_timing(section_words: list[list[M.Word]], target_beats: float = C.BEATS_PER_SECTION) -> None:
     """Adjust pauses so section ends exactly on target_beats."""
     for section in section_words:
         current_total = sum(w.snapped_beats for w in section)
@@ -439,7 +418,7 @@ def balance_section_timing(section_words: list[list[Word]], target_beats: float 
             continue #return or continue
         
         # distribute error
-        pauses = [w for w in section if w.rest_type == RestType.PAUSE]
+        pauses = [w for w in section if w.rest_type == M.RestType.PAUSE]
         if not pauses:
             continue #return or continue
         
@@ -458,19 +437,19 @@ def print_beatmap(events):
             f"[{e.timestamp:5.2f}s]"
         )
 
-def get_beatmap_duration_beats(beatmap: list[CharEvent], beat_duration: float) -> float:
+def get_beatmap_duration_beats(beatmap: list[M.CharEvent], beat_duration: float) -> float:
     if len(beatmap) < 2:
         return 0.0
     return (beatmap[-1].timestamp - beatmap[0].timestamp) / beat_duration
 
-def remove_beatmap_event(beatmap: list[CharEvent], word: str) -> list[CharEvent] | None:
+def remove_beatmap_event(beatmap: list[M.CharEvent], word: str) -> list[M.CharEvent] | None:
     if not beatmap:
         return None
 
     return [e for e in beatmap if e.word_text != word]
 
 
-def get_missing_pause_indices(sections_words: list[list[Word]]) -> list[tuple[int, int]]:
+def get_missing_pause_indices(sections_words: list[list[M.Word]]) -> list[tuple[int, int]]:
     """
     Returns (section_idx, word_idx) where a pause should be inserted
     BEFORE word_idx.
@@ -487,17 +466,17 @@ def get_missing_pause_indices(sections_words: list[list[Word]]) -> list[tuple[in
 
     return indices
                 
-def make_pause(pause_beats: float) -> Word:
-    return Word(
+def make_pause(pause_beats: float) -> M.Word:
+    return M.Word(
         text="",
-        rest_type=RestType.PAUSE,
+        rest_type=M.RestType.PAUSE,
         ideal_beats=pause_beats,
         snapped_beats=pause_beats,
         snapped_cps=0.0
     )
 
-def add_missing_pauses(sections_words: list[list[Word]], pause_beats: float
-) -> list[list[Word]]:
+def add_missing_pauses(sections_words: list[list[M.Word]], pause_beats: float
+) -> list[list[M.Word]]:
     """Adds pauses of 'pause_beats' in areas with no gaps between words."""
     indices = get_missing_pause_indices(sections_words)
 
@@ -508,7 +487,7 @@ def add_missing_pauses(sections_words: list[list[Word]], pause_beats: float
     return sections_words
 
 def align_beatmap_to_song_duration(
-    sections_words: list[list[Word]],
+    sections_words: list[list[M.Word]],
     song_duration_secs: float,
     beat_duration: float
 ) -> None:
@@ -528,7 +507,7 @@ def align_beatmap_to_song_duration(
 
     pauses = [
         w for section in sections_words for w in section
-        if w.rest_type == RestType.PAUSE
+        if w.rest_type == M.RestType.PAUSE
     ]
 
     if not pauses:
@@ -543,12 +522,12 @@ def align_beatmap_to_song_duration(
         )
 
 
-def create_char_events(section_words : list[list[Word]], beat_duration : float) -> list[CharEvent]:
+def create_char_events(section_words : list[list[M.Word]], beat_duration : float) -> list[M.CharEvent]:
     #char: str
     #timestamp: float
     #word_text: str
     #beat_position: float
-    char_events: list[CharEvent] = []
+    char_events: list[M.CharEvent] = []
     curr_beat = 0.0
 
     for section_idx, section in enumerate(section_words):
@@ -558,7 +537,7 @@ def create_char_events(section_words : list[list[Word]], beat_duration : float) 
 
                 for i, char in enumerate(word.text):
                     char_events.append(
-                        CharEvent(
+                        M.CharEvent(
                             char=char,
                             timestamp=curr_beat * beat_duration,
                             word_text=word.text,
@@ -582,13 +561,13 @@ def get_max_words(beat_duration: float, num_sections: int, avg_word_len: float) 
 
     return int(max_chars_total / avg_word_len)
 
-def generate_beatmap(word_list : list[str], bpm : int, song_duration : int, audio_path: Optional[str] = None):
-    beat_duration = 60 / bpm
+def generate_beatmap(word_list : list[str], song_duration : int, song: Song):
+    beat_duration = 60 / song.bpm
     num_sections = int(song_duration / (beat_duration * C.BEATS_PER_SECTION))
 
     intensity_profile: Optional[IntensityProfile] = None
-    if audio_path:
-        intensity_profile = analyze_song_intensity(audio_path, bpm)
+    if song.file_path:
+        intensity_profile = analyze_song_intensity(song.file_path, song.bpm)
 
     avg_word_len = sum(len(w) for w in word_list) / len(word_list)
     
@@ -603,7 +582,7 @@ def generate_beatmap(word_list : list[str], bpm : int, song_duration : int, audi
     target_words = max(target_words, 10) # 10 IS A FILLER UNTIL LATER
     
     expanded = expand_word_list(word_list, target_words, shuffle_each_cycle=True)
-    sections_words : list[list[Word]] = assign_words(expanded, 
+    sections_words : list[list[M.Word]] = assign_words(expanded, 
                                   num_sections, 
                                   beat_duration, 
                                   intensity_profile=intensity_profile)

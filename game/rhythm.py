@@ -1,10 +1,10 @@
 import time
-from .beatmap_generator import CharEvent
 from . import constants as C
+from . import models as M
 
 class RhythmManager:
     
-    def __init__(self, beat_map: list[CharEvent], bpm: int):
+    def __init__(self, beat_map: list[M.CharEvent], bpm: int):
         self.beat_map = beat_map
         self.char_event_idx = 0
         self.start_time = time.perf_counter()
@@ -34,7 +34,7 @@ class RhythmManager:
         time_diff = abs(elapsed - current_event.timestamp)
         return (time_diff <= C.GRACE) 
     
-    def current_event(self) -> CharEvent:
+    def current_event(self) -> M.CharEvent:
         """Gets the current beat event"""
         return self.beat_map[self.char_event_idx]
 
