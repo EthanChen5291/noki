@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import numpy as np
 import librosa
+import game.constants as C
 from dataclasses import dataclass
 from enum import Enum, auto
-from game.beatmap_generator import BEATS_PER_MEASURE
 
 STRONG_INTENSITY_THRESHOLD = 70 # melodies / strong beats, louder than 70%
 MEDIUM_INTENSITY_THRESHOLD = 40 # louder than 40% 
@@ -99,8 +99,8 @@ def convert_to_measure_intensities(beat_intensities: list[float]) -> list[float]
     current_measure_intensity = 0
 
     for i, intensity in enumerate(beat_intensities):
-        if i % BEATS_PER_MEASURE == 0:
-            measure_intensities.append(current_measure_intensity / BEATS_PER_MEASURE)
+        if i % C.BEATS_PER_MEASURE == 0:
+            measure_intensities.append(current_measure_intensity / C.BEATS_PER_MEASURE)
             current_measure_intensity = 0
         
         current_measure_intensity += intensity
@@ -158,7 +158,7 @@ def normalize_sb_intensities(
         beat_intensities: list[float], 
         onset_env: list[float], 
         onset_times: list[float],
-        n: int = BEATS_PER_MEASURE
+        n: int = 4 # sixteen notes
     ) -> list[SubBeatInfo]:
     """
     Splits each beat_times into n slices (sub-beats). 
@@ -173,7 +173,7 @@ def normalize_sb_intensities(
     
     sb_times = get_sb_times(beat_times, n)
     sb_intensities = get_sb_intensities(sb_times, onset_env, onset_times)
-    group_intensities = group_sb_intensities(sb_intensities, BEATS_PER_MEASURE * n) # group into measures
+    group_intensities = group_sb_intensities(sb_intensities, C.BEATS_PER_MEASURE * n) # group into measures
 
     all_sb_info: list[SubBeatInfo] = []
     sb_index = 0
@@ -202,6 +202,12 @@ def normalize_sb_intensities(
             all_sb_info.append(sb_info)
     
     return all_sb_info
+
+def filter_sb_info(sb_info: list[SubBeatInfo], level: SubBeatIntensity) -> list[SubBeatInfo]:
+    """Returns all intensities in sb_info that matches level"""
+    return [i for i in sb_info if i.level == level]
+
+#
     
 # THEN, DO FREQUENCY CHECK ON THE NORMALIZED SB INTENSITIES. maybe split into categories based off wavelength ranges?
     

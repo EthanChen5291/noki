@@ -4,6 +4,7 @@ import sys
 import time
 import os
 
+from . import constants as C
 from .rhythm import RhythmManager
 from .input import Input
 from .beatmap_generator import generate_beatmap
@@ -24,17 +25,6 @@ class Level:
         self.song = song
 
 class Game:
-    SCROLL_SPEED = 300
-    HIT_X = 730
-    MISSED_COLOR = (255, 0, 0)
-    COLOR = (255, 255, 255)
-    UNDERLINE_LEN = 40
-    
-    HIT_MARKER_Y_OFFSET = -70
-    HIT_MARKER_X_OFFSET = -40
-    HIT_MARKER_LENGTH = 200
-    HIT_MARKER_WIDTH = 20
-
     def __init__(self, level) -> None:
         self.screen = pygame.display.set_mode((1920, 1080))
         pygame.display.set_caption("Rhythm Typing Game")
@@ -221,7 +211,7 @@ class Game:
                         centering_offset = -10 # magic num for now
                         line_x = char_x + centering_offset
                         pygame.draw.line(self.screen, (255, 255, 255), 
-                                       (line_x, 200), (line_x + self.UNDERLINE_LEN, 200), 3)
+                                       (line_x, 200), (line_x + C.UNDERLINE_LEN, 200), 3)
         
         # --- draw timeline
         timeline_y = 380
@@ -233,21 +223,21 @@ class Game:
                         (timeline_end_x, timeline_y), 6)
         
         # hit marker
-        hit_marker_x = self.HIT_X
-        hit_marker_x -= self.HIT_MARKER_X_OFFSET
+        hit_marker_x = C.HIT_X
+        hit_marker_x -= C.HIT_MARKER_X_OFFSET
         #shift to include grace period
         
         pygame.draw.line(self.screen, (155, 255, 100), 
-                        (hit_marker_x - self.HIT_MARKER_X_OFFSET, timeline_y), 
-                        (hit_marker_x + self.HIT_MARKER_X_OFFSET, timeline_y), self.HIT_MARKER_WIDTH) # blip hitmarker img to it
+                        (hit_marker_x - C.HIT_MARKER_X_OFFSET, timeline_y), 
+                        (hit_marker_x + C.HIT_MARKER_X_OFFSET, timeline_y), C.HIT_MARKER_WIDTH) # blip hitmarker img to it
         
         pygame.draw.line(self.screen, (0, 180, 220), 
-                        (hit_marker_x, timeline_y  - self.HIT_MARKER_Y_OFFSET), 
-                        (hit_marker_x, timeline_y + self.HIT_MARKER_Y_OFFSET), int(self.HIT_MARKER_WIDTH/2))
+                        (hit_marker_x, timeline_y  - C.HIT_MARKER_Y_OFFSET), 
+                        (hit_marker_x, timeline_y + C.HIT_MARKER_Y_OFFSET), int(C.HIT_MARKER_WIDTH/2))
         
         # --- draw beat markers/notes
         # take account of grace
-        grace = (self.rhythm.GRACE * self.SCROLL_SPEED)
+        grace = (C.GRACE * C.SCROLL_SPEED)
         hit_marker_x -= grace/6
         
         for event in self.rhythm.beat_map:
@@ -257,16 +247,16 @@ class Game:
 
             if -0.75 < time_until_hit < 5.0:
                 
-                marker_x = hit_marker_x + (time_until_hit * self.SCROLL_SPEED)
+                marker_x = hit_marker_x + (time_until_hit * C.SCROLL_SPEED)
                 
                 if timeline_start_x <= marker_x <= timeline_end_x:
                     if event.char != "" and not event.hit:
                         radius = 10
 
                         if time_until_hit < 0:
-                            color = self.MISSED_COLOR
+                            color = C.MISSED_COLOR
                         else:
-                            color = self.COLOR
+                            color = C.COLOR
 
                         pygame.draw.circle(
                             self.screen,
@@ -280,7 +270,7 @@ class Game:
         for i in range(int(current_beat) - 8, int(current_beat) + 16):
             t = i * self.rhythm.beat_duration
             time_until = t - current_time
-            x = hit_marker_x + time_until * self.SCROLL_SPEED
+            x = hit_marker_x + time_until * C.SCROLL_SPEED
             
             if timeline_start_x <= x <= timeline_end_x:
                 if i % 4 == 0:
