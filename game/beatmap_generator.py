@@ -1,8 +1,6 @@
 import random
-from dataclasses import dataclass
 from typing import Optional
-from enum import Enum, auto
-from analysis.audio_analysis import analyze_song_intensity, get_bpm, get_song_info
+from analysis.audio_analysis import analyze_song_intensity, get_bpm, get_song_info, get_sb_info, group_info_by_section, filter_sb_info
 from . import constants as C
 from . import models as M
 
@@ -542,6 +540,7 @@ def create_char_events(section_words : list[list[M.Word]], beat_duration : float
                             word_text=word.text,
                             char_idx=i,
                             beat_position=curr_beat,
+                            section=section_idx
                         )
                     )
                     curr_beat += char_beat_duration
@@ -559,6 +558,101 @@ def get_max_words(beat_duration: float, num_sections: int, avg_word_len: float) 
     max_chars_total = max_chars_per_section * num_sections
 
     return int(max_chars_total / avg_word_len)
+
+# should hopefully understand melodic messages too? like if a melody has 4 notes then it should do 4 characters.
+def group_events_by_section(events: list[M.CharEvent]) -> list[list[M.CharEvent]]:
+    """Groups CharEvents by section"""
+    if not events:
+        return []
+
+    sections: list[list[M.CharEvent]] = []
+    current = [events[0]]
+
+    for e in events[1:]:
+        if e.section != current[-1].section:
+            sections.append(current)
+            current = []
+        current.append(e)
+
+    sections.append(current)
+
+    return sections
+
+def match_melody(events: list[M.CharEvent], sb_info: list[M.SubBeatInfo]) -> list[M.CharEvent]:
+    """Matches each character timestamp in 'events' with beats in 'sb_info'"""
+    total_beats = len(sb_info)
+    total_chars = len(events)
+
+    # how to take account of pauses while assigning words
+
+    matched: list[M.CharEvent] = []
+    last_word = None
+
+    for idx, e in enumerate(events):
+        if e.word_text == "": # adds pauses
+            continue 
+
+        new_time = sb_info[idx].time
+        new = M.CharEvent(
+            char=e.char,
+            timestamp=new_time,
+            word_text=e.word_text,
+            char_idx=e.char_idx,
+            beat_position=e.beat_position,
+            section=e.section
+        )
+        matched.append(new)
+    
+    return matched
+        
+
+def align_chars_to_melody(events: list[M.CharEvent], song: M.Song, beats_per_section: int) -> list[M.CharEvent]:
+    """Shifts each character's timestamp in sections_words to the nearest onset peak in 'song'"""
+    # if bpm > 80, decide between 8th/16th notes(?)
+    if not events or not song:
+        return []
+    
+    sectioned_events = group_events_by_section(events)
+    
+    # split into sixteen notes. should i split into 8th notes in certain cases?
+    sb_info = get_sb_info(song, 4)
+    sectioned_sb_infos: list[list[M.SubBeatInfo]] = group_info_by_section(sb_info, 4, beats_per_section)
+
+    # bounds = start, end
+    matched: list[M.CharEvent] = []
+
+    for i, ev_section in enumerate(sectioned_events):
+        section_info = sectioned_sb_infos[i]
+        strong_beats = filter_sb_info(section_info, M.SubBeatIntensity.STRONG)
+        total_section_time = ev_section[-1].timestamp - ev_section[0].timestamp 
+        # calculated per section in case tempo change detection is implemented in future
+
+        num_quarter_beats = len(strong_beats)
+        cps = num_quarter_beats / total_section_time
+
+        num_beats = num_quarter_beats
+        
+        if cps >= C.MIN_CPS:
+            if cps > C.MAX_CPS: # DOESNT TAKE ACCOUNT OF PAUSE DURATIOn
+                num_beats = num_quarter_beats / 2 # use half beats
+
+        num_chars = len(ev_section)
+        
+        if num_beats >= num_chars: # enough beats for chars
+            matched = match_melody(ev_section, strong_beats)
+        else:
+            medium_beats = filter_sb_info(section_info, M.SubBeatIntensity.MEDIUM)
+            strong_beats += medium_beats
+            matched = match_melody(ev_section,strong_beats)
+        
+    return matched
+
+
+        
+    
+
+
+
 
 def generate_beatmap(word_list : list[str], song: M.Song):
     beat_duration = float(60 / song.bpm)
@@ -591,6 +685,8 @@ def generate_beatmap(word_list : list[str], song: M.Song):
     vary_pause_duration(sections_words)
     balance_section_timing(sections_words)
     add_missing_pauses(sections_words, C.MIN_PAUSE)
+    #create_char_events(sections_words, beat_duration)
+
     # THEN match timestamps to melody
 
     #should add cps outlier check in here + other tuning stuff 
@@ -598,7 +694,7 @@ def generate_beatmap(word_list : list[str], song: M.Song):
     # rebalance()
     return create_char_events(sections_words, beat_duration)
 
-    
+
 
 
 # when incrementing up/down, could ask "is_close_to_beat" (does this make the next word on a beat)

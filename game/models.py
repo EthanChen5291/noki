@@ -45,6 +45,7 @@ class CharEvent:
     word_text: str
     char_idx: int
     beat_position: float
+    section: int
     hit: bool = False
     #section_idx: int
 

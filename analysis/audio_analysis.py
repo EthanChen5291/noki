@@ -293,6 +293,33 @@ def get_sb_info(song: M.Song, subdivisions: int) -> list[M.SubBeatInfo]:
 
     return normalize_sb_intensities(beat_times, beat_intensities, onset_env, onset_times, subdivisions)
 
+def group_info_by_section(sb_info: list[M.SubBeatInfo], subdivisions: int = 4, beats_per_section: int = 16) -> list[list[M.SubBeatInfo]]:
+    """Groups sb_info by sections (defined by beats_per_section), given 'subdivisions' per beat.
+    Defaults to sixteen notes (4 subdivisions per beat) and 4/4 time signature (16 beats per section)"""
+    if not sb_info: 
+        return []
+    
+    total_per_section = subdivisions * beats_per_section
+
+    sections_sb_info: list[list[M.SubBeatInfo]] = []
+    current_section: list[M.SubBeatInfo] = []
+    current_idx = 0
+
+    for sb in sb_info:
+        if current_idx >= total_per_section:
+            sections_sb_info.append(current_section)
+            current_idx = 0
+            current_section = []
+        
+        current_section.append(sb)
+        current_idx += 1
+    sections_sb_info.append(current_section)
+
+    if current_section:
+        sections_sb_info.append(current_section)
+
+    return sections_sb_info
+
 def filter_sb_info(sb_info: list[M.SubBeatInfo], level: M.SubBeatIntensity) -> list[M.SubBeatInfo]:
     """Returns all intensities in sb_info that matches level"""
     return [i for i in sb_info if i.level == level]
