@@ -100,7 +100,7 @@ class Game:
         # animation loop = 2 beats
         loop_beats = 2
         beat_phase = (current_time / self.rhythm.beat_duration) % loop_beats
-        normalized = beat_phase / loop_beats  # 0 → 1
+        normalized = beat_phase / loop_beats
         
         self.cat_frame_index = int(normalized * self.num_cat_frames) % self.num_cat_frames
         self.cat_frame = self.cat_frames[self.cat_frame_index]
