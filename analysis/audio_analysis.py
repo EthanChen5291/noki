@@ -31,19 +31,45 @@ class IntensityProfile:
     section_intensities: list[float]
 
 def get_bpm(audio_path: str, expected_bpm: Optional[int] = None) -> int:
-    """Returns the tempo in BPM"""
+    """Returns the tempo in BPM. Not fully reliable yet."""
     y, sr = librosa.load(audio_path, sr=None)
     
     if expected_bpm:
-        tempo, _ = librosa.beat.beat_track(y=y, sr=sr, start_bpm=expected_bpm, tightness=100)
+        tempo, _ = librosa.beat.beat_track(y=y, sr=sr, start_bpm=expected_bpm, tightness=200)
+        detected_bpm = int(tempo[0]) if isinstance(tempo, np.ndarray) else int(tempo)
+        print(f"Detected BPM: {detected_bpm} (expected: {expected_bpm})")
+        return detected_bpm
+    
+    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+    bpm = int(tempo[0]) if isinstance(tempo, np.ndarray) else int(tempo)
+    
+    print(f"BPM: {bpm}")
+    return bpm
+
+def normalize_bpm(bpm: float) -> int:
+    """Normalizes bpm to a playable-rhythm BPM. Found through testing.
+    
+    Librosa typically interprets BPM in a triplet ambiguity. This detects against that
+    and provides the appropriate correction."""
+    if bpm <= 0:
+        raise ValueError("Invalid BPM")
+
+    candidates = [
+        bpm,
+        bpm * 2,
+        bpm / 2,
+        bpm * 3/2,
+        bpm * 2/3,
+    ]
+
+    playable = [c for c in candidates if 90 <= c <= 220]
+
+    if playable:
+        best = min(playable, key=lambda x: abs(x - 150))
     else:
-        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
-    
-    detected_bpm = int(tempo[0]) if isinstance(tempo, np.ndarray) else int(tempo)
-    
-    print(f"Detected BPM: {detected_bpm}")  # debug
-    
-    return detected_bpm
+        best = min(candidates, key=lambda x: abs(x - bpm))
+
+    return int(round(best))
 
 def get_duration(audio_path: str) -> int:
     """Returns the song duration in seconds"""
@@ -51,12 +77,15 @@ def get_duration(audio_path: str) -> int:
     duration = librosa.get_duration(y=y, sr=sr)
     return int(duration)
 
-def get_song_info(audio_path: str, expected_bpm: Optional[int]) -> M.Song:
-    """Gets the song at 'audio_path's duration and tempo (BPM)"""
+def get_song_info(audio_path: str, expected_bpm: Optional[int], *, normalize: Optional[bool]) -> M.Song:
+    """Gets the song at 'audio_path's duration and tempo (BPM).
+    
+    Can normalize bpm (check for triplet ambiguities) if doing raw BPM detection (no expected_bpm) with 'normalize'."""
     if expected_bpm:
         bpm = get_bpm(audio_path, expected_bpm)
     else:
         bpm = get_bpm(audio_path)
+        bpm = normalize_bpm(bpm)
     
     duration = get_duration(audio_path)
     return M.Song(bpm, duration, audio_path)

@@ -1,3 +1,19 @@
+import os
+from typing import Optional
+
+# --- project root
+
+BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+
+def asset(*parts):
+    return os.path.join(BASE_DIR, "assets", *parts)
+
+def _to_abs_path(p: Optional[str]) -> Optional[str]:
+    """Convert a project-relative path like 'assets/audios/x.wav' to an absolute path."""
+    if not p:
+        return p
+    return p if os.path.isabs(p) else os.path.join(BASE_DIR, p)
+
 # --- beatmap generator
 
 TARGET_CPS = 3.5

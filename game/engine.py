@@ -30,45 +30,46 @@ class Game:
         self.message = None
         self.message_duration = 0.0
 
-        self.level = level
-        self.song_path = level.song_path
-        pygame.mixer.init()
-        pygame.mixer.music.load(self.song_path)
-        pygame.mixer.music.play()
+        # --- loading
+        self.screen.fill((0, 0, 0))
+        loading_font = pygame.font.Font(None, 72)
+        loading_text = loading_font.render("Loading...", True, (255, 255, 255))
+        loading_rect = loading_text.get_rect(center=(screen_width//2, screen_height//2))
+        self.screen.blit(loading_text, loading_rect)
+        pygame.display.flip()
 
         # --- load assets
+        self.level = level
+        abs_song_path = C._to_abs_path(level.song_path)
+        if abs_song_path is None:
+            raise ValueError(f"Invalid song path: {level.song_path}")
+        self.song_path = abs_song_path
+
         assets_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'images')
-        
-        #machine_file = os.path.join(assets_path, 'noki_machinev1.png')
-        #self.machine = pygame.image.load(machine_file).convert_alpha()
-        #self.machine = pygame.transform.scale(self.machine, (300, 350))
-        
+        cat_frames_path = os.path.join(assets_path, "cat_frames")
+
+        self.cat_frames = [
+            pygame.image.load(os.path.join(cat_frames_path, f)).convert_alpha()
+            for f in sorted(os.listdir(cat_frames_path))
+            if f.endswith(('.png', '.jpg', '.jpeg'))
+        ]
+
+        self.cat_frame_index = 0
+        self.num_cat_frames = len(self.cat_frames)
+
         timeline_file = os.path.join(assets_path, 'noki_timeline.png')
         self.timeline_img = pygame.image.load(timeline_file).convert_alpha()
         self.timeline_img = pygame.transform.scale(self.timeline_img, (1920, 200))
         
-        cat_file = os.path.join(assets_path, 'noki_cat.mov')
-        self.cat_reader = imageio.get_reader(cat_file)
-        self.cat_frame_index = 0
+        # --- update loading
+        self.screen.fill((0, 0, 0))
+        loading_text = loading_font.render("Generating beatmap...", True, (255, 255, 255))
+        loading_rect = loading_text.get_rect(center=(screen_width//2, screen_height//2))
+        self.screen.blit(loading_text, loading_rect)
+        pygame.display.flip()
 
-        self.cat_frames = []
-        try:
-            for frame in self.cat_reader.iter_data():
-                self.cat_frames.append(frame)
-        except Exception as e:
-            print(f"Error loading cat frames: {e}")
-        finally:
-            self.cat_reader.close()
-
-        self.total_frames = len(self.cat_frames)
-        self.song = get_song_info(self.song_path, expected_bpm=self.level.bpm)
+        self.song = get_song_info(self.song_path, expected_bpm=self.level.bpm, normalize=True)
         self.beat_duration = 60 / self.song.bpm
-
-        loop_duration = self.beat_duration * 2
-        self.cat_fps = self.total_frames / loop_duration if loop_duration > 0 else 30
-        self.cat_frame_time = 1.0 / self.cat_fps if self.cat_fps > 0 else 1.0 / 30
-        self.cat_time_accumulator = 0.0
-        self.cat_frame = None
 
         beatmap = generate_beatmap(
             word_list=level.word_bank,
@@ -77,6 +78,11 @@ class Game:
         self.rhythm = RhythmManager(beatmap, self.song.bpm)
         
         self.input = Input()
+
+        # --- play music
+        pygame.mixer.init()
+        pygame.mixer.music.load(self.song_path)
+        pygame.mixer.music.play()
 
     def run(self) -> None:
         self.running = True
@@ -88,25 +94,24 @@ class Game:
         pygame.quit()
         sys.exit()
 
-    def update_cat_video(self, dt: float):
-        self.cat_time_accumulator += dt
+    def update_cat_animation(self):
+        current_time = time.perf_counter() - self.rhythm.start_time
+        
+        # animation loop = 2 beats
+        loop_beats = 2
+        beat_phase = (current_time / self.rhythm.beat_duration) % loop_beats
+        normalized = beat_phase / loop_beats  # 0 → 1
+        
+        self.cat_frame_index = int(normalized * self.num_cat_frames) % self.num_cat_frames
+        self.cat_frame = self.cat_frames[self.cat_frame_index]
 
-        if self.cat_time_accumulator >= self.cat_frame_time:
-            self.cat_time_accumulator = 0.0
-
-            frame = self.cat_frames[self.cat_frame_index]
-            self.cat_frame_index = (self.cat_frame_index + 1) % len(self.cat_frames)
-
-            frame = np.rot90(frame)
-            frame = np.flipud(frame)
-            self.cat_frame = pygame.surfarray.make_surface(frame)
 
 
     def update(self, dt: float) -> None:
         self.screen.fill((0,0,0))
         
         # --- CAT
-        self.update_cat_video(dt)
+        self.update_cat_animation()
         if self.cat_frame:
             cat_scaled = pygame.transform.scale(self.cat_frame, (230, 250))
             self.screen.blit(cat_scaled, (150, 550))

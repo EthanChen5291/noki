@@ -566,7 +566,9 @@ def generate_beatmap(word_list : list[str], song: M.Song):
 
     intensity_profile: Optional[IntensityProfile] = None
     if song.file_path:
-        intensity_profile = analyze_song_intensity(song.file_path, song.bpm)
+        path = C._to_abs_path(song.file_path)
+        if path is not None:
+            intensity_profile = analyze_song_intensity(path, song.bpm)
 
     avg_word_len = sum(len(w) for w in word_list) / len(word_list)
     
