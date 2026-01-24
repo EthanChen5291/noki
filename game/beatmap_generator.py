@@ -149,7 +149,7 @@ def select_best_word(remaining_beats: float, words_bank: list[M.Word], remaining
 
 def get_base_pause(
     section_idx: int,
-    intensity_profile: Optional[IntensityProfile],
+    intensity_profile: Optional[M.IntensityProfile],
     ideal_pause: float,
     min_pause: float,
     max_pause: float
@@ -194,7 +194,7 @@ def get_beat_offset(remaining_beats: float):
     return 0
 
 # if is loudest section,add build_up
-def is_loudest_section(profile: IntensityProfile, section_idx: int) -> bool:
+def is_loudest_section(profile: M.IntensityProfile, section_idx: int) -> bool:
     """Returns true if the given section is the loudest section in the song."""
     if profile is None:
         return False
@@ -564,7 +564,7 @@ def generate_beatmap(word_list : list[str], song: M.Song):
     beat_duration = float(60 / song.bpm)
     num_sections = int(song.duration / (beat_duration * C.BEATS_PER_SECTION))
 
-    intensity_profile: Optional[IntensityProfile] = None
+    intensity_profile: Optional[M.IntensityProfile] = None
     if song.file_path:
         path = C._to_abs_path(song.file_path)
         if path is not None:
@@ -579,7 +579,7 @@ def generate_beatmap(word_list : list[str], song: M.Song):
     target_words = int(total_beats / beats_per_word_with_pause)
     
     # reduce by 10-20% to ensure space
-    target_words = int(target_words * 0.9)
+    #target_words = int(target_words * 0.9)
     target_words = max(target_words, 10) # 10 IS A FILLER UNTIL LATER
     
     expanded = expand_word_list(word_list, target_words, shuffle_each_cycle=True)
@@ -591,6 +591,7 @@ def generate_beatmap(word_list : list[str], song: M.Song):
     vary_pause_duration(sections_words)
     balance_section_timing(sections_words)
     add_missing_pauses(sections_words, C.MIN_PAUSE)
+    # THEN match timestamps to melody
 
     #should add cps outlier check in here + other tuning stuff 
     # if snapped_cps < MIN_CPS or snapped_cps > MAX_CPS:

@@ -4,8 +4,6 @@ import numpy as np
 import librosa
 import game.constants as C
 import game.models as M
-from dataclasses import dataclass
-from enum import Enum, auto
 from typing import Optional
 
 def get_bpm(audio_path: str, expected_bpm: Optional[int] = None) -> float:
@@ -33,10 +31,12 @@ def get_bpm(audio_path: str, expected_bpm: Optional[int] = None) -> float:
     return bpm
 
 def normalize_bpm(bpm: float) -> int:
-    """Normalizes bpm to a playable-rhythm BPM. Found through testing.
+    """
+    Normalizes bpm to a playable-rhythm BPM. Found through testing.
     
     Librosa typically interprets BPM in a triplet ambiguity. This detects against that
-    and provides the appropriate correction."""
+    and provides the appropriate correction.
+    """
     if bpm <= 0:
         raise ValueError("Invalid BPM")
 
@@ -80,16 +80,7 @@ def get_song_info(audio_path: str, expected_bpm: Optional[int], *, normalize: Op
     duration = get_duration(audio_path)
     return M.Song(bpm, duration, audio_path)
 
-def analyze_song_intensity(audio_path: str, bpm: float, beats_per_section: int = 16) -> M.IntensityProfile:
-    y, sr = librosa.load(audio_path, sr=None)
-
-    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, start_bpm=bpm)
-    beat_times = librosa.frames_to_time(beat_frames, sr=sr)
-
-    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-    onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr)
-   
-    # FIND AVERAGE (UNTESTED)
+def get_beat_intensities(beat_times: np.ndarray, onset_times: np.ndarray, onset_env: np.ndarray) -> list[float]:
     beat_intensities = []
     for i in range(len(beat_times) - 1):
         start_t, end_t = beat_times[i], beat_times[i+1]
@@ -97,7 +88,9 @@ def analyze_song_intensity(audio_path: str, bpm: float, beats_per_section: int =
         avg_strength = onset_env[mask].mean() if np.any(mask) else 0.0
         beat_intensities.append(avg_strength)
     
-    #group intensities to sections
+    return beat_intensities
+
+def get_section_intensities(beat_intensities : list[float], beats_per_section: int = 16) -> list[float]:
     section_intensities: list[float] = []
     num_sections = len(beat_intensities) // beats_per_section
 
@@ -106,6 +99,24 @@ def analyze_song_intensity(audio_path: str, bpm: float, beats_per_section: int =
         b = a + beats_per_section
         sec_vals = beat_intensities[a:b]
         section_intensities.append(float(np.mean(sec_vals)) if sec_vals else 0.0)
+    
+    return section_intensities
+    
+def analyze_song_intensity(audio_path: str, bpm: float, beats_per_section: int = 16) -> M.IntensityProfile:
+    """Given a song's file path, returns the intensity at each beat and 
+    average intensity per section (defined by "beats_per_section")"""
+    y, sr = librosa.load(audio_path, sr=None)
+
+    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, start_bpm=bpm)
+    beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+    onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr)
+   
+    beat_intensities = get_beat_intensities(beat_times, onset_times, onset_env)
+    
+    #group intensities to sections
+    section_intensities: list[float] = get_section_intensities(beat_intensities, beats_per_section)
     
     return M.IntensityProfile(
         beat_intensities=beat_intensities, 
@@ -117,8 +128,9 @@ def analyze_song_intensity(audio_path: str, bpm: float, beats_per_section: int =
 # - calculate average measure intensity, set it to 1
 # - normalize all the measure densities to avg and output a list of ratios
 
-def get_sb_times(beat_times : list[float], n : int = 4) -> list[float]:
-    """Returns a list of times of beats which each beat cut into 'n' subdivisions. 
+def get_sb_times(beat_times : np.ndarray, n : int = 4) -> list[float]:
+    """
+    Returns a list of times of beats which each beat cut into 'n' subdivisions. 
     
     If subdivisions == 4, a list with four values per beat for each beat in beat_times
     would be given.
@@ -138,13 +150,15 @@ def get_sb_times(beat_times : list[float], n : int = 4) -> list[float]:
     return sb_times
     
 def beat_intensity_at_time(t, onset_env, onset_times, window=0.05):
-    "Fetches the beat intensity around interval 'window' of time 't'"
+    """Fetches the beat intensity around interval 'window' of time 't'"""
     mask = (onset_times >= t - window) & (onset_times <= t + window)
     return float(onset_env[mask].mean()) if np.any(mask) else 0.0
     
 def convert_to_measure_intensities(beat_intensities: list[float]) -> list[float]:
-    "Returns average measure intensities for all measures (BEATS_PER_MEASURE) in beat_intensities."
-    "Discards remainder."
+    """
+    Returns average measure intensities for all measures (BEATS_PER_MEASURE) 
+    in beat_intensities. Discards remainder.
+    """
     if not beat_intensities:
         return []
     
@@ -163,8 +177,10 @@ def convert_to_measure_intensities(beat_intensities: list[float]) -> list[float]
     # what if there is an incomplete measure
 
 def get_sb_intensities(sb_times, onset_env, onset_times, window : float = 0.05) -> list[float]:
-    "Returns the all sub_beat_intensities around 'window' of each sub-beat. "
-    "A sub-beat has each beat in 'beat_times' cut into 'n' subdivisions"
+    """
+    Returns the all sub_beat_intensities around 'window' of each sub-beat. 
+    A sub-beat has each beat in 'beat_times' cut into 'n' subdivisions
+    """
     sb_intensities : list[float] = []
 
     if not sb_times:
@@ -177,7 +193,7 @@ def get_sb_intensities(sb_times, onset_env, onset_times, window : float = 0.05) 
     return sb_intensities
 
 def group_sb_intensities(beat_intensities: list[float], n: int) -> list[list[float]]:
-    "Groups subbeats into groups of size n. Discards remainder, if any."
+    """Groups subbeats into groups of size n. Discards remainder, if any."""
     if not beat_intensities:
         return []
     
@@ -194,8 +210,8 @@ def group_sb_intensities(beat_intensities: list[float], n: int) -> list[list[flo
     return group_intensities
 
 def first_greater_than_percentile(lst: list[float], p: float) -> float:
-    "Returns minimum value in 'lst' >= the 'p'th percentile. "
-    "Does not preserve order."
+    """Returns minimum value in 'lst' >= the 'p'th percentile.
+    Does not preserve order."""
     if not lst:
         raise ValueError("Cannot compute percentile of an empty list")
     
@@ -207,10 +223,10 @@ def first_greater_than_percentile(lst: list[float], p: float) -> float:
     return sorted_lst[idx]
 
 def normalize_sb_intensities(
-        beat_times: list[float], 
+        beat_times: np.ndarray, 
         beat_intensities: list[float], 
-        onset_env: list[float], 
-        onset_times: list[float],
+        onset_env: np.ndarray, 
+        onset_times: np.ndarray,
         n: int = 4 # sixteen notes
     ) -> list[M.SubBeatInfo]:
     """
@@ -256,12 +272,35 @@ def normalize_sb_intensities(
     
     return all_sb_info
 
+def get_sb_info(song: M.Song, subdivisions: int) -> list[M.SubBeatInfo]:
+    """Returns (timestamp, raw_intensity, level) for each sub_beat in 'song'.
+    Each sub-beat is 1/subdivisions of a beat."""
+    y, sr = librosa.load(song.file_path, sr=None)
+
+    _, beat_frames = librosa.beat.beat_track(
+        y=y,
+        sr=sr,
+        start_bpm=song.bpm if song.bpm else 120,
+        tightness=200
+    )
+
+    beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+    onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr)
+
+    beat_intensities = get_beat_intensities(beat_times, onset_times, onset_env)
+
+    return normalize_sb_intensities(beat_times, beat_intensities, onset_env, onset_times, subdivisions)
+
 def filter_sb_info(sb_info: list[M.SubBeatInfo], level: M.SubBeatIntensity) -> list[M.SubBeatInfo]:
     """Returns all intensities in sb_info that matches level"""
     return [i for i in sb_info if i.level == level]
 
-#
-    
+def num_of_level(sb_info: list[M.SubBeatInfo], level: M.SubBeatIntensity) -> int:
+    """Returns the number of sub-beats in sb_info that match 'level'"""
+    return len(filter_sb_info(sb_info, level))
+
 # THEN, DO FREQUENCY CHECK ON THE NORMALIZED SB INTENSITIES. maybe split into categories based off wavelength ranges?
     
 
@@ -284,4 +323,3 @@ def filter_sb_info(sb_info: list[M.SubBeatInfo], level: M.SubBeatIntensity) -> l
 # this constrains the chars to recommended CPS while ensuring musical feel
 
 # get silence
-
