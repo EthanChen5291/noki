@@ -105,8 +105,6 @@ class Game:
         self.cat_frame_index = int(normalized * self.num_cat_frames) % self.num_cat_frames
         self.cat_frame = self.cat_frames[self.cat_frame_index]
 
-
-
     def update(self, dt: float) -> None:
         self.screen.fill((0,0,0))
         

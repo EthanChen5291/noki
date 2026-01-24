@@ -4,7 +4,7 @@ from . import models as M
 
 class RhythmManager:
     
-    def __init__(self, beat_map: list[M.CharEvent], bpm: int):
+    def __init__(self, beat_map: list[M.CharEvent], bpm: float):
         self.beat_map = beat_map
         self.char_event_idx = 0
         self.start_time = time.perf_counter()

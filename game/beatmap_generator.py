@@ -561,7 +561,7 @@ def get_max_words(beat_duration: float, num_sections: int, avg_word_len: float) 
     return int(max_chars_total / avg_word_len)
 
 def generate_beatmap(word_list : list[str], song: M.Song):
-    beat_duration = 60 / song.bpm
+    beat_duration = float(60 / song.bpm)
     num_sections = int(song.duration / (beat_duration * C.BEATS_PER_SECTION))
 
     intensity_profile: Optional[IntensityProfile] = None

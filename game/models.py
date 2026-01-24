@@ -30,7 +30,7 @@ class CharEvent:
 # --- engine 
 
 class Song:
-    def __init__(self, bpm, duration, file_path):
+    def __init__(self, bpm: float, duration: float, file_path: str):
         self.bpm = bpm
         self.duration = duration
         self.file_path = file_path

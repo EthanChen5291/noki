@@ -30,20 +30,28 @@ class IntensityProfile:
     beat_intensities: list[float]
     section_intensities: list[float]
 
-def get_bpm(audio_path: str, expected_bpm: Optional[int] = None) -> int:
+def get_bpm(audio_path: str, expected_bpm: Optional[int] = None) -> float:
     """Returns the tempo in BPM. Not fully reliable yet."""
     y, sr = librosa.load(audio_path, sr=None)
+
+    tempo, beat_frames = librosa.beat.beat_track(
+        y=y,
+        sr=sr,
+        start_bpm=expected_bpm if expected_bpm else 120,
+        tightness=200
+    )
+
+    beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+
+    if len(beat_times) > 1:
+        intervals = np.diff(beat_times)
+        median_interval = np.median(intervals)
+        bpm = float(60 / median_interval)
+    else:
+        bpm = float(tempo[0] if isinstance(tempo, np.ndarray) else tempo)
+
+    print(f"Raw BPM (beat_times): {bpm:.3f}")
     
-    if expected_bpm:
-        tempo, _ = librosa.beat.beat_track(y=y, sr=sr, start_bpm=expected_bpm, tightness=200)
-        detected_bpm = int(tempo[0]) if isinstance(tempo, np.ndarray) else int(tempo)
-        print(f"Detected BPM: {detected_bpm} (expected: {expected_bpm})")
-        return detected_bpm
-    
-    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
-    bpm = int(tempo[0]) if isinstance(tempo, np.ndarray) else int(tempo)
-    
-    print(f"BPM: {bpm}")
     return bpm
 
 def normalize_bpm(bpm: float) -> int:
@@ -69,6 +77,9 @@ def normalize_bpm(bpm: float) -> int:
     else:
         best = min(candidates, key=lambda x: abs(x - bpm))
 
+    rounded = int(round(best))
+
+    print(f"Final BPM: {rounded}")
     return int(round(best))
 
 def get_duration(audio_path: str) -> int:
@@ -77,7 +88,7 @@ def get_duration(audio_path: str) -> int:
     duration = librosa.get_duration(y=y, sr=sr)
     return int(duration)
 
-def get_song_info(audio_path: str, expected_bpm: Optional[int], *, normalize: Optional[bool]) -> M.Song:
+def get_song_info(audio_path: str, expected_bpm: Optional[int], *, normalize: Optional[bool] =True) -> M.Song:
     """Gets the song at 'audio_path's duration and tempo (BPM).
     
     Can normalize bpm (check for triplet ambiguities) if doing raw BPM detection (no expected_bpm) with 'normalize'."""
@@ -85,12 +96,13 @@ def get_song_info(audio_path: str, expected_bpm: Optional[int], *, normalize: Op
         bpm = get_bpm(audio_path, expected_bpm)
     else:
         bpm = get_bpm(audio_path)
-        bpm = normalize_bpm(bpm)
+        if normalize:
+            bpm = normalize_bpm(bpm)
     
     duration = get_duration(audio_path)
     return M.Song(bpm, duration, audio_path)
 
-def analyze_song_intensity(audio_path: str, bpm: int, beats_per_section: int = 16) -> IntensityProfile:
+def analyze_song_intensity(audio_path: str, bpm: float, beats_per_section: int = 16) -> IntensityProfile:
     y, sr = librosa.load(audio_path, sr=None)
 
     tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, start_bpm=bpm)
