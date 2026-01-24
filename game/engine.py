@@ -14,7 +14,9 @@ pygame.init()
 
 class Game:
     def __init__(self, level) -> None:
-        self.screen = pygame.display.set_mode((1920, 1080))
+        info = pygame.display.Info()
+        screen_width, screen_height = info.current_w, info.current_h
+        self.screen = pygame.display.set_mode((screen_width, screen_height), pygame.RESIZABLE)
         pygame.display.set_caption("Rhythm Typing Game")
         self.clock = pygame.time.Clock()
         self.running = False
