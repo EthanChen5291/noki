@@ -2,7 +2,7 @@ import random
 from dataclasses import dataclass
 from typing import Optional
 from enum import Enum, auto
-from analysis.audio_analysis import analyze_song_intensity, get_bpm, get_song_info, IntensityProfile
+from analysis.audio_analysis import analyze_song_intensity, get_bpm, get_song_info
 from . import constants as C
 from . import models as M
 

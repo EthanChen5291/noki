@@ -14,6 +14,11 @@ def _to_abs_path(p: Optional[str]) -> Optional[str]:
         return p
     return p if os.path.isabs(p) else os.path.join(BASE_DIR, p)
 
+# --- audio analysis
+
+STRONG_INTENSITY_THRESHOLD = 70 # melodies / strong beats, louder than 70%
+MEDIUM_INTENSITY_THRESHOLD = 40 # louder than 40% 
+
 # --- beatmap generator
 
 TARGET_CPS = 3.5

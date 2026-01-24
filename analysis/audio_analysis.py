@@ -8,28 +8,6 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional
 
-
-STRONG_INTENSITY_THRESHOLD = 70 # melodies / strong beats, louder than 70%
-MEDIUM_INTENSITY_THRESHOLD = 40 # louder than 40% 
-@dataclass(frozen=True)
-class SubBeatInfo():
-    """Beat-level timestamps, raw intensities, and normalized intensity levels"""
-    time: float
-    raw_intensity: float
-    level: SubBeatIntensity
-
-class SubBeatIntensity(Enum):
-    """Normalized beat-level intensity relative to each beat's respective measure intensity"""
-    WEAK = auto()
-    MEDIUM = auto()
-    STRONG = auto()
-
-@dataclass(frozen=True)
-class IntensityProfile:
-    """Beat-level and section-level intensity curves (higher = more activity)"""
-    beat_intensities: list[float]
-    section_intensities: list[float]
-
 def get_bpm(audio_path: str, expected_bpm: Optional[int] = None) -> float:
     """Returns the tempo in BPM. Not fully reliable yet."""
     y, sr = librosa.load(audio_path, sr=None)
@@ -102,7 +80,7 @@ def get_song_info(audio_path: str, expected_bpm: Optional[int], *, normalize: Op
     duration = get_duration(audio_path)
     return M.Song(bpm, duration, audio_path)
 
-def analyze_song_intensity(audio_path: str, bpm: float, beats_per_section: int = 16) -> IntensityProfile:
+def analyze_song_intensity(audio_path: str, bpm: float, beats_per_section: int = 16) -> M.IntensityProfile:
     y, sr = librosa.load(audio_path, sr=None)
 
     tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, start_bpm=bpm)
@@ -129,7 +107,7 @@ def analyze_song_intensity(audio_path: str, bpm: float, beats_per_section: int =
         sec_vals = beat_intensities[a:b]
         section_intensities.append(float(np.mean(sec_vals)) if sec_vals else 0.0)
     
-    return IntensityProfile(
+    return M.IntensityProfile(
         beat_intensities=beat_intensities, 
         section_intensities=section_intensities
     )
@@ -234,7 +212,7 @@ def normalize_sb_intensities(
         onset_env: list[float], 
         onset_times: list[float],
         n: int = 4 # sixteen notes
-    ) -> list[SubBeatInfo]:
+    ) -> list[M.SubBeatInfo]:
     """
     Splits each beat_times into n slices (sub-beats). 
     
@@ -250,35 +228,35 @@ def normalize_sb_intensities(
     sb_intensities = get_sb_intensities(sb_times, onset_env, onset_times)
     group_intensities = group_sb_intensities(sb_intensities, C.BEATS_PER_MEASURE * n) # group into measures
 
-    all_sb_info: list[SubBeatInfo] = []
+    all_sb_info: list[M.SubBeatInfo] = []
     sb_index = 0
 
     for i, group in enumerate(group_intensities):
         if not group:
             continue
         
-        strong_threshold = first_greater_than_percentile(group, STRONG_INTENSITY_THRESHOLD)
-        medium_threshold = first_greater_than_percentile(group, MEDIUM_INTENSITY_THRESHOLD)
+        strong_threshold = first_greater_than_percentile(group, C.STRONG_INTENSITY_THRESHOLD)
+        medium_threshold = first_greater_than_percentile(group, C.MEDIUM_INTENSITY_THRESHOLD)
 
         for intensity in group:
             curr_measure_subbeats = group_intensities[i]
 
             if intensity >= strong_threshold:
-                level = SubBeatIntensity.STRONG
+                level = M.SubBeatIntensity.STRONG
             elif intensity >= medium_threshold:
-                level = SubBeatIntensity.MEDIUM
+                level = M.SubBeatIntensity.MEDIUM
             else:
-                level = SubBeatIntensity.WEAK # add empty for silence?
+                level = M.SubBeatIntensity.WEAK # add empty for silence?
             
             time = sb_times[sb_index]
             sb_index += 1
 
-            sb_info = SubBeatInfo(time, intensity, level)
+            sb_info = M.SubBeatInfo(time, intensity, level)
             all_sb_info.append(sb_info)
     
     return all_sb_info
 
-def filter_sb_info(sb_info: list[SubBeatInfo], level: SubBeatIntensity) -> list[SubBeatInfo]:
+def filter_sb_info(sb_info: list[M.SubBeatInfo], level: M.SubBeatIntensity) -> list[M.SubBeatInfo]:
     """Returns all intensities in sb_info that matches level"""
     return [i for i in sb_info if i.level == level]
 

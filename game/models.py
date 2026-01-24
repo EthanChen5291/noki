@@ -2,6 +2,27 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional
 
+# --- audio analysis
+
+class SubBeatIntensity(Enum):
+    """Normalized beat-level intensity relative to each beat's respective measure intensity"""
+    WEAK = auto()
+    MEDIUM = auto()
+    STRONG = auto()
+
+@dataclass(frozen=True)
+class SubBeatInfo():
+    """Beat-level timestamps, raw intensities, and normalized intensity levels"""
+    time: float
+    raw_intensity: float
+    level: SubBeatIntensity
+
+@dataclass(frozen=True)
+class IntensityProfile:
+    """Beat-level and section-level intensity curves (higher = more activity)"""
+    beat_intensities: list[float]
+    section_intensities: list[float]
+
 # --- beatmap generator
 
 class RestType(Enum):
