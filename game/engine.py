@@ -59,7 +59,7 @@ class Game:
             self.cat_reader.close()
 
         self.total_frames = len(self.cat_frames)
-        self.song = get_song_info(self.song_path)
+        self.song = get_song_info(self.song_path, expected_bpm=self.level.bpm)
         self.beat_duration = 60 / self.song.bpm
 
         loop_duration = self.beat_duration * 2
@@ -107,7 +107,7 @@ class Game:
         self.update_cat_video(dt)
         if self.cat_frame:
             cat_scaled = pygame.transform.scale(self.cat_frame, (230, 250))
-            self.screen.blit(cat_scaled, (390, 550))
+            self.screen.blit(cat_scaled, (150, 550))
         
         events = pygame.event.get()
         for event in events:

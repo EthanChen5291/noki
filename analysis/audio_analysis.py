@@ -6,6 +6,8 @@ import game.constants as C
 import game.models as M
 from dataclasses import dataclass
 from enum import Enum, auto
+from typing import Optional
+
 
 STRONG_INTENSITY_THRESHOLD = 70 # melodies / strong beats, louder than 70%
 MEDIUM_INTENSITY_THRESHOLD = 40 # louder than 40% 
@@ -28,14 +30,20 @@ class IntensityProfile:
     beat_intensities: list[float]
     section_intensities: list[float]
 
-def get_bpm(audio_path: str) -> int:
+def get_bpm(audio_path: str, expected_bpm: Optional[int] = None) -> int:
     """Returns the tempo in BPM"""
     y, sr = librosa.load(audio_path, sr=None)
-    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
     
-    if isinstance(tempo, np.ndarray):
-        return int(tempo[0])
-    return int(tempo)
+    if expected_bpm:
+        tempo, _ = librosa.beat.beat_track(y=y, sr=sr, start_bpm=expected_bpm, tightness=100)
+    else:
+        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+    
+    detected_bpm = int(tempo[0]) if isinstance(tempo, np.ndarray) else int(tempo)
+    
+    print(f"Detected BPM: {detected_bpm}")  # debug
+    
+    return detected_bpm
 
 def get_duration(audio_path: str) -> int:
     """Returns the song duration in seconds"""
@@ -43,9 +51,13 @@ def get_duration(audio_path: str) -> int:
     duration = librosa.get_duration(y=y, sr=sr)
     return int(duration)
 
-def get_song_info(audio_path: str) -> M.Song:
+def get_song_info(audio_path: str, expected_bpm: Optional[int]) -> M.Song:
     """Gets the song at 'audio_path's duration and tempo (BPM)"""
-    bpm = get_bpm(audio_path)
+    if expected_bpm:
+        bpm = get_bpm(audio_path, expected_bpm)
+    else:
+        bpm = get_bpm(audio_path)
+    
     duration = get_duration(audio_path)
     return M.Song(bpm, duration, audio_path)
 

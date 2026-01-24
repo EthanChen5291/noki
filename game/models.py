@@ -36,6 +36,7 @@ class Song:
         self.file_path = file_path
 
 class Level:
-    def __init__(self, word_bank: list[str], song_path: str):
+    def __init__(self, word_bank: list[str], song_path: str, bpm: Optional[int] = None):
         self.word_bank = word_bank
         self.song_path = song_path
+        self.bpm = bpm

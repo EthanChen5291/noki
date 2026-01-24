@@ -9,8 +9,8 @@ BEATS_PER_MEASURE = 4
 BEATS_PER_SECTION = 16
 #USABLE_SECTION_BEATS = BEATS_PER_SECTION - BEATS_PER_MEASURE 
 MIN_PAUSE = 0.5 #pause between each word
-IDEAL_PAUSE = 1.0
-MAX_PAUSE = 1.5
+IDEAL_PAUSE = 1.5
+MAX_PAUSE = 2.0
 # Intervals of 0.5 here to stick to eight notes (because 0.5 of a beat is a half beat) for playability 
 # since triplets (0.33) are weird and sixteenth notes (0.25) are prob too fast
 
