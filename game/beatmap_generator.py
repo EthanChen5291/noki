@@ -591,6 +591,9 @@ def match_melody(events: list[M.CharEvent], sb_info: list[M.SubBeatInfo]) -> lis
     for idx, e in enumerate(events):
         if e.word_text == "": # adds pauses
             continue 
+        
+        if idx >= len(sb_info):
+            break
 
         new_time = sb_info[idx].time
         new = M.CharEvent(
@@ -607,52 +610,51 @@ def match_melody(events: list[M.CharEvent], sb_info: list[M.SubBeatInfo]) -> lis
         
 
 def align_chars_to_melody(events: list[M.CharEvent], song: M.Song, beats_per_section: int) -> list[M.CharEvent]:
-    """Shifts each character's timestamp in sections_words to the nearest onset peak in 'song'"""
-    # if bpm > 80, decide between 8th/16th notes(?)
+    """Nudges character timestamps toward nearby audio intensity peaks"""
     if not events or not song:
-        return []
+        return events  # Return original if can't align
     
-    sectioned_events = group_events_by_section(events)
-    
-    # split into sixteen notes. should i split into 8th notes in certain cases?
     sb_info = get_sb_info(song, 4)
-    sectioned_sb_infos: list[list[M.SubBeatInfo]] = group_info_by_section(sb_info, 4, beats_per_section)
-
-    # bounds = start, end
-    matched: list[M.CharEvent] = []
-
-    for i, ev_section in enumerate(sectioned_events):
-        section_info = sectioned_sb_infos[i]
-        strong_beats = filter_sb_info(section_info, M.SubBeatIntensity.STRONG)
-        total_section_time = ev_section[-1].timestamp - ev_section[0].timestamp 
-        # calculated per section in case tempo change detection is implemented in future
-
-        num_quarter_beats = len(strong_beats)
-        cps = num_quarter_beats / total_section_time
-
-        num_beats = num_quarter_beats
-        
-        if cps >= C.MIN_CPS:
-            if cps > C.MAX_CPS: # DOESNT TAKE ACCOUNT OF PAUSE DURATIOn
-                num_beats = num_quarter_beats / 2 # use half beats
-
-        num_chars = len(ev_section)
-        
-        if num_beats >= num_chars: # enough beats for chars
-            matched = match_melody(ev_section, strong_beats)
-        else:
-            medium_beats = filter_sb_info(section_info, M.SubBeatIntensity.MEDIUM)
-            strong_beats += medium_beats
-            matched = match_melody(ev_section,strong_beats)
-        
-    return matched
-
-
-        
+    if not sb_info:
+        return events
     
-
-
-
+    aligned: list[M.CharEvent] = []
+    min_char_spacing = 0.15  # minimum 150ms between characters
+    
+    for e in events:
+        if e.word_text == "":#skip pauses
+            aligned.append(e)
+            continue
+        
+        original_time = e.timestamp
+        
+        nearby_beats = [
+            sb for sb in sb_info
+            if (sb.level == M.SubBeatIntensity.STRONG and 
+                abs(sb.time - original_time) < C.MELODY_SEARCH_WINDOW)
+        ]
+        
+        if nearby_beats:
+            nearest = min(nearby_beats, key=lambda sb: abs(sb.time - original_time))
+            new_time = nearest.time
+        else:
+            new_time = original_time
+        
+        # ensure minimum spacing
+        if aligned and aligned[-1].word_text != "":
+            min_time = aligned[-1].timestamp + min_char_spacing
+            new_time = max(new_time, min_time)
+        
+        aligned.append(M.CharEvent(
+            char=e.char,
+            timestamp=new_time,
+            word_text=e.word_text,
+            char_idx=e.char_idx,
+            beat_position=e.beat_position,
+            section=e.section
+        ))
+    
+    return aligned
 
 def generate_beatmap(word_list : list[str], song: M.Song):
     beat_duration = float(60 / song.bpm)
@@ -685,14 +687,14 @@ def generate_beatmap(word_list : list[str], song: M.Song):
     vary_pause_duration(sections_words)
     balance_section_timing(sections_words)
     add_missing_pauses(sections_words, C.MIN_PAUSE)
-    #create_char_events(sections_words, beat_duration)
-
+    
+    events = create_char_events(sections_words, beat_duration)
     # THEN match timestamps to melody
 
     #should add cps outlier check in here + other tuning stuff 
     # if snapped_cps < MIN_CPS or snapped_cps > MAX_CPS:
     # rebalance()
-    return create_char_events(sections_words, beat_duration)
+    return align_chars_to_melody(events, song, C.BEATS_PER_SECTION) #eventually want to use my own beats_per_section
 
 
 

@@ -58,7 +58,7 @@ def normalize_bpm(bpm: float) -> int:
     rounded = int(round(best))
 
     print(f"Final BPM: {rounded}")
-    return int(round(best))
+    return rounded
 
 def get_duration(audio_path: str) -> int:
     """Returns the song duration in seconds"""
@@ -136,7 +136,7 @@ def get_sb_times(beat_times : np.ndarray, n : int = 4) -> list[float]:
     would be given.
     """
     #separates onset_times into sixteenth note intervals 
-    if not beat_times:
+    if not beat_times.any():
         return []
 
     sb_times = []
@@ -313,7 +313,7 @@ def group_info_by_section(sb_info: list[M.SubBeatInfo], subdivisions: int = 4, b
         
         current_section.append(sb)
         current_idx += 1
-    sections_sb_info.append(current_section)
+        sections_sb_info.append(current_section)
 
     if current_section:
         sections_sb_info.append(current_section)
