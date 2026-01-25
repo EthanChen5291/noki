@@ -26,7 +26,7 @@ def main():
     # what to do to actually move?
 
     tutorial = Level(
-        word_bank=wb1,
+        word_bank=wb2,
         song_path=song_paths[2],
         bpm=96
         )

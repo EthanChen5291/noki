@@ -4,6 +4,7 @@ import numpy as np
 import sys
 import time
 import os
+import math
 
 from . import constants as C
 from .rhythm import RhythmManager
@@ -36,6 +37,14 @@ class Game:
         
         self.message = None
         self.message_duration = 0.0
+
+        self.message = None
+        self.message_duration = 0.0
+
+        # word transition animation
+        self._last_displayed_word = None
+        self._previous_word = None
+        self._word_transition_start = 0.0
 
         # --- loading
         self.screen.fill((0, 0, 0))
@@ -179,7 +188,6 @@ class Game:
                     
                     self.misses = self.rhythm.miss_count
                     self.used_current_char = True
-        
 
         self.render_timeline()
         
@@ -196,33 +204,195 @@ class Game:
         self.screen.blit(combo_text, (1300, 750))
         self.screen.blit(acc_text, (1300, 800))
         self.screen.blit(rank_text, (1300, 850))
+        
+    def get_next_word(self) -> str | None:
+        """Get the next word that will be typed after current word completes"""
+        if not self.rhythm.beat_map:
+            return None
+        
+        # Find the next word in the beatmap
+        for i in range(self.rhythm.char_event_idx, len(self.rhythm.beat_map)):
+            event = self.rhythm.beat_map[i]
+            if event.word_text and event.char_idx == 0 and not event.is_rest:
+                # Found start of next word
+                if event.word_text != self.rhythm.current_expected_word():
+                    return event.word_text
+        
+        return None
+
+    def draw_word_animated(
+        self,
+        word: str,
+        position: str,  # 'left', 'center', 'right'
+        transition_progress: float,
+        is_current: bool,
+        current_char_idx: int,
+        fading_out: bool = False,
+        adjacent_word_width: int = 0  # NEW parameter
+    ):
+        """Draw a word with 3D carousel rotation animation"""
+        if not word:
+            return
+        
+        base_char_spacing = 60
+
+        if position == 'right':
+            char_spacing = base_char_spacing * 0.7
+        elif position == 'left':
+            char_spacing = base_char_spacing * 0.7
+        else:  #center
+            char_spacing = base_char_spacing
+        
+        total_width = len(word) * char_spacing
+        
+        radius = 350  # radius of rotation circle
+        center_offset = base_char_spacing / 2
+        center_x = self.screen.get_width() // 2 + center_offset  # center of screen
+        center_y = 150  # vertical position (like in 3d space)
+        
+        base_spacing = 100
+        
+        if position == 'center':
+            target_angle = 0  # front center
+            target_scale = 1.0
+            target_alpha = 255
+            target_color = (255, 255, 255)
+            target_char_spacing = base_char_spacing
+        elif position == 'right':
+            # adjust angle based off combined word widths
+            width_factor = (total_width + adjacent_word_width) / 2
+            dynamic_spacing = base_spacing + width_factor * 0.3
+            target_angle = dynamic_spacing / radius
+            target_scale = 0.75
+            target_alpha = 180
+            target_color = (150, 150, 150)
+            target_char_spacing = base_char_spacing * 0.7
+        else:
+            width_factor = (total_width + adjacent_word_width) / 2
+            dynamic_spacing = base_spacing + width_factor * 0.3
+            target_angle = -dynamic_spacing / radius
+            target_scale = 0.75
+            target_alpha = int(180 * (1 - transition_progress)) if fading_out else 180
+            target_color = (150, 150, 150)
+            target_char_spacing = base_char_spacing * 0.7
+            
+        if position == 'center' and transition_progress < 1.0:
+            width_factor = (total_width + adjacent_word_width) / 2
+            dynamic_spacing = base_spacing + width_factor * 0.3
+            start_angle = dynamic_spacing / radius
+            current_angle = start_angle + (target_angle - start_angle) * transition_progress
+            
+            current_scale = 0.75 + (target_scale - 0.75) * transition_progress
+            current_alpha = int(180 + (target_alpha - 180) * transition_progress)
+            
+            gray_amount = int(150 + (255 - 150) * transition_progress)
+            current_color = (gray_amount, gray_amount, gray_amount)
+
+            start_char_spacing = base_char_spacing * 0.7
+            current_char_spacing = start_char_spacing + (target_char_spacing - start_char_spacing) * transition_progress
+        else:
+            current_angle = target_angle
+            current_scale = target_scale
+            current_alpha = target_alpha
+            current_color = target_color
+            current_char_spacing = char_spacing
+        
+        x_offset = radius * math.sin(current_angle)
+        z = radius * (1 - math.cos(current_angle))
+        
+        perspective_scale = 1.0 / (1.0 + z / 1000)
+        final_scale = current_scale * perspective_scale
+        final_alpha = int(current_alpha * perspective_scale)
+        
+        animated_total_width = len(word) * current_char_spacing * final_scale
+    
+        current_x = center_x + x_offset - animated_total_width / 2
+        
+        for i, char in enumerate(word):
+            font_size = int(48 * final_scale)
+            char_font = pygame.font.Font(None, font_size)
+            
+            char_surface = char_font.render(char, True, current_color)
+            char_surface.set_alpha(final_alpha)
+            
+            char_x = current_x + i * (current_char_spacing * final_scale)
+            char_y = center_y
+            
+            self.screen.blit(char_surface, (int(char_x), int(char_y)))
+            
+            if position == 'center' and is_current and self.rhythm.char_event_idx < len(self.rhythm.beat_map):
+                current_event = self.rhythm.beat_map[self.rhythm.char_event_idx]
+                if current_event.word_text == word and current_event.char_idx == i:
+                    underline_width = int(C.UNDERLINE_LEN * final_scale)
+                    line_x = char_x - 10 * final_scale
+                    line_y = char_y + 50
+                    
+                    pygame.draw.line(
+                        self.screen,
+                        (255, 255, 255),
+                        (int(line_x), int(line_y)),
+                        (int(line_x + underline_width), int(line_y)),
+                        3
+                    )
 
     # --- RENDER TIMELINE 
 
     def render_timeline(self):
         current_time = time.perf_counter() - self.rhythm.start_time
         
-        # show current word
         current_word = self.rhythm.current_expected_word()
+        next_word = self.get_next_word()
+        
+        char_spacing = 60
+        current_word_width = len(current_word) * char_spacing if current_word else 0
+        next_word_width = len(next_word) * char_spacing if next_word else 0
+        prev_word_width = len(self._previous_word) * char_spacing if hasattr(self, '_previous_word') and self._previous_word else 0
+        
+        if current_word != getattr(self, '_last_displayed_word', None):
+            self._word_transition_start = current_time
+            self._last_displayed_word = current_word
+        
+        transition_duration = 0.3  # secs
+        if hasattr(self, '_word_transition_start'):
+            transition_progress = min(1.0, (current_time - self._word_transition_start) / transition_duration)
+        else:
+            transition_progress = 1.0
+        
+        ease_progress = 1 - (1 - transition_progress) ** 3
+        
         if current_word:
-            # draw each character with underline for current character
-            char_spacing = 60
-            total_width = len(current_word) * char_spacing
-            start_x = 800 - total_width // 2 #need something for 960
-            
-            for i, char in enumerate(current_word):
-                char_surface = self.font.render(char, True, (255, 255, 255))
-                char_x = start_x + i * char_spacing
-                self.screen.blit(char_surface, (char_x, 150))
-                
-                # underline current character
-                if self.rhythm.char_event_idx < len(self.rhythm.beat_map):
-                    current_event = self.rhythm.beat_map[self.rhythm.char_event_idx]
-                    if current_event.word_text == current_word and current_event.char == char and current_event.char_idx == i:
-                        centering_offset = -10 # magic num for now
-                        line_x = char_x + centering_offset
-                        pygame.draw.line(self.screen, (255, 255, 255), 
-                                       (line_x, 200), (line_x + C.UNDERLINE_LEN, 200), 3)
+            self.draw_word_animated(
+                current_word,
+                position='center',
+                transition_progress=ease_progress,
+                is_current=True,
+                current_char_idx=self.rhythm.char_event_idx,
+                adjacent_word_width=next_word_width
+            )
+        
+        if next_word:
+            self.draw_word_animated(
+                next_word,
+                position='right',
+                transition_progress=ease_progress,
+                is_current=False,
+                current_char_idx=-1,
+                adjacent_word_width=current_word_width
+            )
+        
+        if hasattr(self, '_previous_word') and self._previous_word is not None and transition_progress < 1.0:
+            self.draw_word_animated(
+                self._previous_word,
+                position='left',
+                transition_progress=ease_progress,
+                is_current=False,
+                current_char_idx=-1,
+                fading_out=True,
+                adjacent_word_width=current_word_width
+            )
+        
+        if transition_progress >= 1.0:
+            self._previous_word = current_word
 
         # --- draw timeline
         timeline_y = 380
