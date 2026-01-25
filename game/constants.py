@@ -42,7 +42,7 @@ MIN_BEAT_GAP = 0.25  # gap between each beat. want to incorporate later as a gua
 MAX_BEATMAP_DIFF = 3 # beats
 SNAP_GRID = 0.5
 
-MAX_SLOTS_PER_MEASURE = 6
+MAX_SLOTS_PER_MEASURE = 8
 
 MELODY_SEARCH_WINDOW = 0.2 # how far song melody notes will be looked for when aligning notes with melody
 MIN_CHAR_SPACING = 0.15 # minimum 150ms between characters

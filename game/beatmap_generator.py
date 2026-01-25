@@ -131,17 +131,18 @@ def select_word_for_measure(
     else:
         target_chars = max(2, int(available_slots * 0.75))
     
-    # Find words matching target length with wider tolerance for extreme intensities
+    # Find words matching target length with tolerance, but MUST fit in available slots
     tolerance = 2 if abs(intensity_ratio - 1.0) > 0.3 else 1
     candidates = [
-        w for w in remaining_words 
-        if abs(len(w.text) - target_chars) <= tolerance
+        w for w in remaining_words
+        if abs(len(w.text) - target_chars) <= tolerance and len(w.text) <= available_slots
     ]
-    
+
     if not candidates:
         candidates = [w for w in remaining_words if len(w.text) <= available_slots]
-    
+
     if not candidates:
+        # Last resort: pick shortest word even if longer than slots (will be truncated)
         candidates = [min(remaining_words, key=lambda w: len(w.text))]
     
     target_cps = C.TARGET_CPS * intensity_ratio
@@ -213,14 +214,19 @@ def assign_words_to_slots(
         if word in remaining_words:
             remaining_words.remove(word)
 
-        chars_to_place = len(word.text)
+        chars_to_place = min(len(word.text), len(measure_slots), C.MAX_SLOTS_PER_MEASURE)
 
         sorted_slots = sorted(measure_slots, key=lambda s: s.priority, reverse=True)
         selected_slots = sorted_slots[:chars_to_place]
 
         selected_slots.sort(key=lambda s: s.time)
 
-        for char_idx, (char, slot) in enumerate(zip(word.text, selected_slots)):
+        if not selected_slots:
+            continue
+
+        for char_idx in range(chars_to_place):
+            char = word.text[char_idx]
+            slot = selected_slots[char_idx]
             events.append(M.CharEvent(
                 char=char,
                 timestamp=slot.time,
@@ -232,7 +238,7 @@ def assign_words_to_slots(
             ))
             slot.is_filled = True
 
-        last_word_end_time = selected_slots[-1].time
+        last_word_end_time = selected_slots[chars_to_place - 1].time
         last_word_text = word.text
 
         if measure_idx < len(measures) - 1:
@@ -413,5 +419,67 @@ def generate_beatmap(word_list: list[str], song: M.Song) -> list[M.CharEvent]:
     word_bank = get_words_with_rhythm_info(word_list, beat_duration)
     events = assign_words_to_slots(measures, word_bank, beat_duration, intensity_profile)
     events = add_rhythm_variations(events, song)
-    
+
+    # Final cleanup: remove duplicate/too-close events and cap per measure
+    events = deduplicate_events(events, beat_duration, min_spacing=0.1)
+
     return events
+
+
+def deduplicate_events(
+    events: list[M.CharEvent],
+    beat_duration: float,
+    min_spacing: float = 0.1
+) -> list[M.CharEvent]:
+    """
+    Remove events that are too close together and cap events per measure.
+    This catches any duplicates created during processing.
+    """
+    if not events:
+        return events
+
+    # Sort by timestamp
+    events = sorted(events, key=lambda e: e.timestamp)
+
+    # Remove events too close together (keep first occurrence)
+    filtered: list[M.CharEvent] = []
+    for event in events:
+        if event.is_rest:
+            filtered.append(event)
+            continue
+
+        # Check if too close to last non-rest event
+        last_char_event = None
+        for e in reversed(filtered):
+            if not e.is_rest:
+                last_char_event = e
+                break
+
+        if last_char_event is None or (event.timestamp - last_char_event.timestamp) >= min_spacing:
+            filtered.append(event)
+
+    # Cap events per measure
+    measure_duration = beat_duration * C.BEATS_PER_MEASURE
+    measure_events: dict[int, list[M.CharEvent]] = {}
+
+    for event in filtered:
+        if event.is_rest:
+            continue
+        measure_idx = int(event.timestamp / measure_duration)
+        if measure_idx not in measure_events:
+            measure_events[measure_idx] = []
+        measure_events[measure_idx].append(event)
+
+    # Find events to remove (exceeding cap per measure)
+    events_to_remove: set[float] = set()
+    for measure_idx, m_events in measure_events.items():
+        if len(m_events) > C.MAX_SLOTS_PER_MEASURE:
+            # Keep highest priority (earliest) ones, remove excess
+            excess = m_events[C.MAX_SLOTS_PER_MEASURE:]
+            for e in excess:
+                events_to_remove.add(e.timestamp)
+
+    # Build final list
+    final = [e for e in filtered if e.is_rest or e.timestamp not in events_to_remove]
+
+    return final
