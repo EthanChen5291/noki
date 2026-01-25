@@ -203,9 +203,10 @@ class Game:
         self.shockwaves = surviving
 
     def update_dynamic_scroll_speed(self, current_time: float):
+        """Smoothly interpolate scroll speed based on energy shifts"""
         song_time = current_time
 
-        speed = self.base_scroll_speed * self.pace_bias
+        target_speed = self.base_scroll_speed * self.pace_bias
 
         active_shift = None
         for shift in self.energy_shifts:
@@ -214,35 +215,55 @@ class Game:
                 break
 
         if active_shift:
-            speed *= active_shift.scroll_modifier
+            target_speed *= active_shift.scroll_modifier
 
-        self.scroll_speed = speed
+        # Smooth acceleration/deceleration with lerp
+        # Faster lerp when speeding up, slower when slowing down for drama
+        if target_speed > self.scroll_speed:
+            lerp_factor = 0.06  # Speed up gradually
+        else:
+            lerp_factor = 0.04  # Slow down more gradually
 
+        self.scroll_speed += (target_speed - self.scroll_speed) * lerp_factor
 
+    def draw_speed_arrow(self, x: int, timeline_y: int, timeline_height: int, speed_up: bool):
+        """Draw a speed change arrow spanning the full measure line"""
+        # Colors: bright cyan for speed up, softer blue for slow down
+        if speed_up:
+            arrow_color = (0, 200, 255)
+            glow_color = (0, 100, 200, 80)
+        else:
+            arrow_color = (100, 150, 255)
+            glow_color = (50, 100, 180, 80)
 
-    def draw_speed_arrow(self, x: int, y: int, speed_up: bool):
-        """Draw a speed change arrow (like Geometry Dash portals)"""
-        arrow_color = (0, 180, 255) if speed_up else (100, 180, 255)
-        arrow_height = 80
-        arrow_width = 32
+        arrow_height = timeline_height  # Span full measure line
+        arrow_width = 24
+
+        # Arrow points spanning the timeline
+        top_y = timeline_y - arrow_height // 2
+        bottom_y = timeline_y + arrow_height // 2
+        center_y = timeline_y
 
         if speed_up:
-            # right arrow
-            points = [
-                (x - arrow_width // 2, y - arrow_height // 2),
-                (x + arrow_width // 2, y),
-                (x - arrow_width // 2, y + arrow_height // 2),
-            ]
+            # Rightward double chevron (>>)
+            for offset in [-8, 8]:
+                points = [
+                    (x - arrow_width // 2 + offset, top_y),
+                    (x + arrow_width // 2 + offset, center_y),
+                    (x - arrow_width // 2 + offset, bottom_y),
+                ]
+                pygame.draw.polygon(self.screen, arrow_color, points)
+                pygame.draw.polygon(self.screen, (255, 255, 255), points, 2)
         else:
-            # left arrow
-            points = [
-                (x + arrow_width // 2, y - arrow_height // 2),
-                (x - arrow_width // 2, y),
-                (x + arrow_width // 2, y + arrow_height // 2),
-            ]
-
-        pygame.draw.polygon(self.screen, arrow_color, points)
-        #pygame.draw.polygon(self.screen, (255, 255, 255), points, 2) idk if i should keep outline
+            # Leftward double chevron (<<)
+            for offset in [-8, 8]:
+                points = [
+                    (x + arrow_width // 2 + offset, top_y),
+                    (x - arrow_width // 2 + offset, center_y),
+                    (x + arrow_width // 2 + offset, bottom_y),
+                ]
+                pygame.draw.polygon(self.screen, arrow_color, points)
+                pygame.draw.polygon(self.screen, (200, 220, 255), points, 2)
 
     def render_shockwave(self, wave: M.Shockwave):
         """Render a single shockwave ring with realistic gray coloring"""
@@ -623,9 +644,10 @@ class Game:
                                    (x, timeline_y - 30), (x, timeline_y + 30), 2)
 
         # --- draw speed change arrows at energy shift boundaries
-        for shift in self.energy_shifts:
+        timeline_height = 100  # Matches measure line height (±50 from center)
 
-            shift_time = shift.start_time #+ self.rhythm.lead_in
+        for shift in self.energy_shifts:
+            shift_time = shift.start_time
             time_until = shift_time - current_time
 
             if -0.5 < time_until < 5.0:
@@ -633,7 +655,7 @@ class Game:
 
                 if timeline_start_x <= arrow_x <= timeline_end_x:
                     speed_up = shift.energy_delta > 0
-                    self.draw_speed_arrow(int(arrow_x), timeline_y - 70, speed_up)
+                    self.draw_speed_arrow(int(arrow_x), timeline_y, timeline_height, speed_up)
 
     def show_message(self, txt: str, secs: float):
         self.message = txt

@@ -447,17 +447,39 @@ def calculate_energy_shifts(
     pace_score: float,
     beats_per_section: int = 8
 ) -> list[M.SectionEnergyShift]:
-
+    """
+    Calculate dynamic scroll speed shifts using accurate beat frames.
+    Shifts persist until intensity drops noticeably below the trigger level.
+    """
     y, sr = librosa.load(audio_path, sr=None)
 
     _, beat_frames = librosa.beat.beat_track(y=y, sr=sr, start_bpm=bpm)
     beat_times = librosa.frames_to_time(beat_frames, sr=sr)
 
+    if len(beat_times) < beats_per_section * 2:
+        return []
+
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
     onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr)
 
     beat_intensities = get_aggro_beat_intensities(beat_times, onset_times, onset_env)
-    section_intensities = get_section_intensities(beat_intensities, beats_per_section)
+
+    # Group beats into sections using actual beat times (not calculated duration)
+    num_sections = len(beat_intensities) // beats_per_section
+    section_intensities: list[float] = []
+    section_times: list[tuple[float, float]] = []  # (start_time, end_time) from actual beats
+
+    for sec_idx in range(num_sections):
+        beat_start = sec_idx * beats_per_section
+        beat_end = beat_start + beats_per_section
+
+        sec_beats = beat_intensities[beat_start:beat_end]
+        section_intensities.append(float(np.mean(sec_beats)) if sec_beats else 0.0)
+
+        # Use actual beat times for section boundaries
+        start_t = float(beat_times[beat_start]) if beat_start < len(beat_times) else 0.0
+        end_t = float(beat_times[min(beat_end, len(beat_times) - 1)])
+        section_times.append((start_t, end_t))
 
     if len(section_intensities) < 2:
         return []
@@ -466,15 +488,19 @@ def calculate_energy_shifts(
     if avg_intensity <= 1e-6:
         return []
 
-    beat_duration = 60 / bpm
-    section_duration = beat_duration * beats_per_section
+    # Much lower threshold for more triggers
+    base_threshold = 0.10 - (pace_score * 0.04)
+    base_threshold = max(0.04, base_threshold)
 
-    base_threshold = 0.18 - (pace_score * 0.06)
-    base_threshold = max(0.08, base_threshold)
+    # Drop threshold: how much intensity must fall to end a shift
+    drop_threshold = 0.85  # End when intensity falls to 85% of trigger level
 
     shifts: list[M.SectionEnergyShift] = []
-    last_trigger_idx = -999
-    cooldown = 2
+    in_shift = False
+    shift_start_idx = -1
+    shift_trigger_intensity = 0.0
+    shift_modifier = 1.0
+    shift_delta = 0.0
 
     for i in range(1, len(section_intensities)):
         current = section_intensities[i]
@@ -483,41 +509,73 @@ def calculate_energy_shifts(
         delta = (current - previous) / avg_intensity
         ratio = current / (avg_intensity + 1e-6)
 
-        # --- three-tier detection ---
-        strong_jump = abs(delta) > base_threshold * 1.4
+        # Detection criteria (lowered thresholds)
+        strong_jump = abs(delta) > base_threshold * 1.2
         medium_jump = abs(delta) > base_threshold
-        climax = ratio > (1.18 + 0.25 * pace_score)
+        climax = ratio > (1.10 + 0.15 * pace_score)
 
-        trigger = strong_jump or climax or (medium_jump and ratio > 1.05)
+        trigger = strong_jump or climax or (medium_jump and ratio > 1.0)
 
-        if not trigger:
-            continue
+        if not in_shift:
+            # Check if we should start a new shift
+            if trigger and delta > 0:  # Only trigger on energy INCREASE
+                in_shift = True
+                shift_start_idx = i
+                shift_trigger_intensity = current
+                shift_delta = delta
 
-        if i - last_trigger_idx < cooldown:
-            continue
+                # Calculate modifier based on magnitude
+                magnitude = max(abs(delta), ratio - 1.0)
+                magnitude = magnitude ** (1.2 + 0.6 * pace_score)
 
-        magnitude = max(abs(delta), ratio - 1.0)
-        magnitude = magnitude ** (1.4 + 0.8 * pace_score)
-
-        if delta >= 0:
-            modifier = 1.0 + magnitude * (1.2 + 1.0 * pace_score)
+                shift_modifier = 1.0 + magnitude * (1.5 + 1.2 * pace_score)
+                shift_modifier = float(np.clip(shift_modifier, 1.1, 3.0))
         else:
-            modifier = 1.0 - magnitude * (0.8 + 0.5 * pace_score)
+            # Check if we should end the current shift
+            # End when intensity drops significantly below trigger level
+            intensity_ratio = current / (shift_trigger_intensity + 1e-6)
 
-        modifier = float(np.clip(modifier, 0.55, 2.8))
+            if intensity_ratio < drop_threshold or delta < -base_threshold * 1.5:
+                # End the shift - create the event spanning all elevated sections
+                start_time = section_times[shift_start_idx][0]
+                end_time = section_times[i - 1][1]  # End at previous section
 
-        start_time = i * section_duration
-        end_time = (i + 1) * section_duration
+                shifts.append(M.SectionEnergyShift(
+                    section_idx=shift_start_idx,
+                    start_time=start_time,
+                    end_time=end_time,
+                    energy_delta=float(shift_delta),
+                    scroll_modifier=shift_modifier
+                ))
+
+                in_shift = False
+
+                # Check if this dip itself triggers a slowdown
+                if delta < -base_threshold:
+                    slow_magnitude = abs(delta) ** 1.2
+                    slow_modifier = 1.0 - slow_magnitude * (0.6 + 0.4 * pace_score)
+                    slow_modifier = float(np.clip(slow_modifier, 0.5, 0.95))
+
+                    shifts.append(M.SectionEnergyShift(
+                        section_idx=i,
+                        start_time=section_times[i][0],
+                        end_time=section_times[i][1],
+                        energy_delta=float(delta),
+                        scroll_modifier=slow_modifier
+                    ))
+
+    # Close any open shift at end of song
+    if in_shift and shift_start_idx >= 0:
+        start_time = section_times[shift_start_idx][0]
+        end_time = section_times[-1][1]
 
         shifts.append(M.SectionEnergyShift(
-            section_idx=i,
+            section_idx=shift_start_idx,
             start_time=start_time,
             end_time=end_time,
-            energy_delta=float(delta),
-            scroll_modifier=modifier
+            energy_delta=float(shift_delta),
+            scroll_modifier=shift_modifier
         ))
-
-        last_trigger_idx = i
 
     return shifts
 
