@@ -8,42 +8,38 @@ class RhythmManager:
     Manages rhythm gameplay timing, scoring, and feedback.
     Enhanced for modern rhythm game features.
     """
-    
     def __init__(self, beat_map: list[M.CharEvent], bpm: float):
         self.beat_map = beat_map
         self.bpm = bpm
         self.beat_duration = 60 / bpm
         
-        # Playback state
+        # playback state
         self.char_event_idx = 0
         self.start_time = time.perf_counter()
         
-        # Word tracking
+        # word tracking
         self.current_word_idx = 0
         self.last_word = None
         
-        # Accuracy tracking
+        # accuracy tracking
         self.combo = 0
         self.max_combo = 0
         self.perfect_hits = 0
         self.good_hits = 0
         self.miss_count = 0
         
-        # Filter out rest events for gameplay
         self.playable_events = [e for e in beat_map if not e.is_rest]
         
-        # Pre-calculate timing windows
         self._setup_timing_windows()
     
     def _setup_timing_windows(self):
         """Define timing windows like modern rhythm games"""
-        # Based on beat duration for adaptive difficulty
         base_window = min(0.15, self.beat_duration * 0.4)
         
         self.timing_windows = {
-            'perfect': base_window * 0.5,  # ±50% of base window
-            'good': base_window,            # ±100% of base window  
-            'ok': base_window * 1.5,        # ±150% of base window
+            'perfect': base_window * 0.5,
+            'good': base_window,
+            'ok': base_window * 1.5,
         }
     
     def update(self):
@@ -88,12 +84,10 @@ class RhythmManager:
         
         expected_char = current_event.char
         
-        # Check character match
         if typed_char != expected_char:
             self._register_miss()
             return {'hit': False, 'judgment': 'wrong', 'time_diff': 0, 'combo': 0}
         
-        # Check timing
         elapsed = time.perf_counter() - self.start_time
         time_diff = abs(elapsed - current_event.timestamp)
         
@@ -103,7 +97,6 @@ class RhythmManager:
             self._register_miss()
             return {'hit': False, 'judgment': 'miss', 'time_diff': time_diff, 'combo': 0}
         
-        # Successful hit!
         self._register_hit(judgment)
         current_event.hit = True
         self.char_event_idx += 1
@@ -155,7 +148,6 @@ class RhythmManager:
         if prev_event.is_rest:
             return False
         
-        # Word is complete if we just hit the last character
         return (prev_event.char_idx == len(prev_event.word_text) - 1 if prev_event.word_text else False)
     
     # ==================== TIMING CHECKS ====================
@@ -206,13 +198,20 @@ class RhythmManager:
     def current_expected_word(self) -> Optional[str]:
         """Get the current word being typed"""
         event = self.current_event()
-        
-        if not event or event.is_rest:
+
+        if not event:
             return self.last_word
-        
-        if event.word_text and event.char_idx == 0:
+
+        if event.is_rest:
+            for i in range(self.char_event_idx + 1, len(self.beat_map)):
+                next_event = self.beat_map[i]
+                if not next_event.is_rest and next_event.word_text:
+                    return next_event.word_text
+            return self.last_word
+
+        if event.word_text:
             self.last_word = event.word_text
-        
+
         return self.last_word
     
     def get_upcoming_events(self, lookahead_time: float = 3.0) -> list[M.CharEvent]:
@@ -255,7 +254,7 @@ class RhythmManager:
             self.good_hits * 100
         )
         
-        # Combo multiplier (max 2x at 50+ combo)
+        # COMBO MULTIPLIER
         combo_multiplier = min(1.0 + (self.max_combo / 100), 2.0)
         
         return int(base_score * combo_multiplier)
@@ -266,7 +265,6 @@ class RhythmManager:
         if total_notes == 0:
             return 100.0
         
-        # Weight different judgments
         weighted_hits = (
             self.perfect_hits * 1.0 +
             self.good_hits * 0.7
