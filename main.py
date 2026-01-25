@@ -57,7 +57,7 @@ def main():
 
     tutorial = Level(
         word_bank=wb2,
-        song_path=song_path + song_names[2],
+        song_path=song_path + song_names[4],
         bpm=96
         )
     
@@ -66,3 +66,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+#starts on beat 1 (really at 0) [0]
+#starts at beat 3 (really at 0) [2]
+
+

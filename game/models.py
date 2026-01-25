@@ -117,7 +117,7 @@ class Song:
         self.bpm = bpm
         self.duration = duration
         self.file_path = file_path
-        self.beat_times = beat_times or []  # Actual beat timestamps from librosa
+        self.beat_times = beat_times or []
 
 class Level:
     def __init__(self, word_bank: list[str], song_path: str, bpm: Optional[int] = None):

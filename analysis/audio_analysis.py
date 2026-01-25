@@ -66,11 +66,58 @@ def get_duration(audio_path: str) -> int:
     duration = librosa.get_duration(y=y, sr=sr)
     return int(duration)
 
+def find_downbeat_offset(beat_times: np.ndarray, onset_env: np.ndarray, onset_times: np.ndarray) -> int:
+    """
+    Find which beat position (0-3) is consistently the downbeat across multiple measures.
+    Uses statistical analysis over multiple measures for more reliable detection.
+    Returns the offset (0-3) to align beats to measures.
+    """
+    if len(beat_times) < 8:
+        return 0
+
+    # Analyze multiple measures (up to 8) to find consistent downbeat pattern
+    num_measures = min(8, len(beat_times) // 4)
+
+    # Accumulate intensity for each beat position (0-3) across measures
+    position_intensities = [[] for _ in range(4)]
+
+    for measure_idx in range(num_measures):
+        for beat_pos in range(4):
+            beat_idx = measure_idx * 4 + beat_pos
+            if beat_idx >= len(beat_times):
+                break
+
+            bt = beat_times[beat_idx]
+            # Find onset intensity near this beat
+            mask = (onset_times >= bt - 0.05) & (onset_times <= bt + 0.05)
+            if np.any(mask):
+                intensity = float(np.max(onset_env[mask]))
+            else:
+                intensity = 0.0
+            position_intensities[beat_pos].append(intensity)
+
+    # Calculate mean intensity for each beat position
+    mean_intensities = []
+    for pos in range(4):
+        if position_intensities[pos]:
+            mean_intensities.append(np.mean(position_intensities[pos]))
+        else:
+            mean_intensities.append(0.0)
+
+    # The position with highest mean intensity is likely the downbeat
+    downbeat_pos = int(np.argmax(mean_intensities))
+
+    # The offset is how many beats to skip so that beat 1 aligns to index 0
+    # If downbeat is at position 2, we need to skip 2 beats
+    return downbeat_pos
+
+
 def get_song_info(audio_path: str, expected_bpm: Optional[int], *, normalize: Optional[bool] =True) -> M.Song:
     """Gets the song at 'audio_path's duration and tempo (BPM).
 
     Can normalize bpm (check for triplet ambiguities) if doing raw BPM detection (no expected_bpm) with 'normalize'.
-    Also extracts actual beat timestamps from librosa for drift-free rendering."""
+    Also extracts actual beat timestamps from librosa for drift-free rendering.
+    Aligns beats to measures by finding the downbeat."""
     if expected_bpm:
         bpm = get_bpm(audio_path, expected_bpm)
     else:
@@ -83,9 +130,18 @@ def get_song_info(audio_path: str, expected_bpm: Optional[int], *, normalize: Op
     duration = librosa.get_duration(y=y, sr=sr)
 
     _, beat_frames = librosa.beat.beat_track(y=y, sr=sr, start_bpm=bpm, tightness=200)
-    beat_times = librosa.frames_to_time(beat_frames, sr=sr).tolist()
+    beat_times_raw = librosa.frames_to_time(beat_frames, sr=sr)
 
-    return M.Song(bpm, int(duration), audio_path, beat_times)
+    # Find downbeat alignment
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+    onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr)
+    downbeat_offset = find_downbeat_offset(beat_times_raw, onset_env, onset_times)
+
+    # Offset beat times so measure lines align correctly
+    # Skip the first `downbeat_offset` beats so index 0 is a downbeat
+    aligned_beat_times = beat_times_raw[downbeat_offset:].tolist()
+
+    return M.Song(bpm, int(duration), audio_path, aligned_beat_times)
 
 def get_beat_intensities(beat_times: np.ndarray, onset_times: np.ndarray, onset_env: np.ndarray) -> list[float]:
     beat_intensities = []
@@ -487,7 +543,6 @@ def get_aggro_beat_intensities(beat_times, onset_times, onset_env):
         mask = (onset_times >= start_t) & (onset_times < end_t)
 
         if np.any(mask):
-            # 🔥 use MAX instead of mean (captures spikes)
             val = float(np.max(onset_env[mask]))
         else:
             val = 0.0
@@ -500,29 +555,27 @@ def calculate_energy_shifts(
     audio_path: str,
     bpm: float,
     pace_score: float,
+    aligned_beat_times: list[float],
     beats_per_section: int = 8
 ) -> list[M.SectionEnergyShift]:
     """
-    Calculate dynamic scroll speed shifts using accurate beat frames.
+    Calculate dynamic scroll speed shifts using aligned beat times.
     Shifts persist until intensity drops noticeably below the trigger level.
+    Uses the same beat_times as measure lines for perfect sync.
     """
-    y, sr = librosa.load(audio_path, sr=None)
-
-    _, beat_frames = librosa.beat.beat_track(y=y, sr=sr, start_bpm=bpm)
-    beat_times = librosa.frames_to_time(beat_frames, sr=sr)
-
-    if len(beat_times) < beats_per_section * 2:
+    if len(aligned_beat_times) < beats_per_section * 2:
         return []
 
+    y, sr = librosa.load(audio_path, sr=None)
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
     onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr)
 
+    beat_times = np.array(aligned_beat_times)
     beat_intensities = get_aggro_beat_intensities(beat_times, onset_times, onset_env)
 
-    # Group beats into sections using actual beat times (not calculated duration)
     num_sections = len(beat_intensities) // beats_per_section
     section_intensities: list[float] = []
-    section_times: list[tuple[float, float]] = []  # (start_time, end_time) from actual beats
+    section_times: list[tuple[float, float]] = []
 
     for sec_idx in range(num_sections):
         beat_start = sec_idx * beats_per_section
@@ -531,7 +584,6 @@ def calculate_energy_shifts(
         sec_beats = beat_intensities[beat_start:beat_end]
         section_intensities.append(float(np.mean(sec_beats)) if sec_beats else 0.0)
 
-        # Use actual beat times for section boundaries
         start_t = float(beat_times[beat_start]) if beat_start < len(beat_times) else 0.0
         end_t = float(beat_times[min(beat_end, len(beat_times) - 1)])
         section_times.append((start_t, end_t))
@@ -543,12 +595,10 @@ def calculate_energy_shifts(
     if avg_intensity <= 1e-6:
         return []
 
-    # Much lower threshold for more triggers
     base_threshold = 0.10 - (pace_score * 0.04)
     base_threshold = max(0.04, base_threshold)
 
-    # Drop threshold: how much intensity must fall to end a shift
-    drop_threshold = 0.85  # End when intensity falls to 85% of trigger level
+    drop_threshold = 0.85
 
     shifts: list[M.SectionEnergyShift] = []
     in_shift = False
@@ -564,7 +614,6 @@ def calculate_energy_shifts(
         delta = (current - previous) / avg_intensity
         ratio = current / (avg_intensity + 1e-6)
 
-        # Detection criteria (lowered thresholds)
         strong_jump = abs(delta) > base_threshold * 1.2
         medium_jump = abs(delta) > base_threshold
         climax = ratio > (1.10 + 0.15 * pace_score)
@@ -572,28 +621,23 @@ def calculate_energy_shifts(
         trigger = strong_jump or climax or (medium_jump and ratio > 1.0)
 
         if not in_shift:
-            # Check if we should start a new shift
-            if trigger and delta > 0:  # Only trigger on energy INCREASE
+            if trigger and delta > 0:
                 in_shift = True
                 shift_start_idx = i
                 shift_trigger_intensity = current
                 shift_delta = delta
 
-                # Calculate modifier based on magnitude
                 magnitude = max(abs(delta), ratio - 1.0)
                 magnitude = magnitude ** (1.2 + 0.6 * pace_score)
 
                 shift_modifier = 1.0 + magnitude * (1.5 + 1.2 * pace_score)
                 shift_modifier = float(np.clip(shift_modifier, 1.1, 3.0))
         else:
-            # Check if we should end the current shift
-            # End when intensity drops significantly below trigger level
             intensity_ratio = current / (shift_trigger_intensity + 1e-6)
 
             if intensity_ratio < drop_threshold or delta < -base_threshold * 1.5:
-                # End the shift - create the event spanning all elevated sections
                 start_time = section_times[shift_start_idx][0]
-                end_time = section_times[i - 1][1]  # End at previous section
+                end_time = section_times[i - 1][1]
 
                 shifts.append(M.SectionEnergyShift(
                     section_idx=shift_start_idx,
@@ -605,7 +649,6 @@ def calculate_energy_shifts(
 
                 in_shift = False
 
-                # Check if this dip itself triggers a slowdown
                 if delta < -base_threshold:
                     slow_magnitude = abs(delta) ** 1.2
                     slow_modifier = 1.0 - slow_magnitude * (0.6 + 0.4 * pace_score)
@@ -619,7 +662,6 @@ def calculate_energy_shifts(
                         scroll_modifier=slow_modifier
                     ))
 
-    # Close any open shift at end of song
     if in_shift and shift_start_idx >= 0:
         start_time = section_times[shift_start_idx][0]
         end_time = section_times[-1][1]

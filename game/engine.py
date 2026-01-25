@@ -95,7 +95,7 @@ class Game:
             word_list=level.word_bank,
             song=self.song
         )
-        lead_in = calculate_lead_in(self.song.bpm)
+        lead_in = calculate_lead_in(self.song.beat_times)
         self.rhythm = RhythmManager(beatmap, self.song.bpm, lead_in=lead_in)
 
         self.input = Input()
@@ -118,11 +118,12 @@ class Game:
 
         self.scroll_speed = self.base_scroll_speed * self.pace_bias 
 
-        # --- calculate dynamic energy shifts
+        # --- calculate dynamic energy shifts (using aligned beat times)
         self.energy_shifts = calculate_energy_shifts(
             self.song_path,
             self.song.bpm,
-            self.pace_profile.pace_score
+            self.pace_profile.pace_score,
+            self.song.beat_times  # pass aligned beat times
         )
 
         # --- play music
@@ -142,16 +143,14 @@ class Game:
 
     def update_cat_animation(self):
         current_time = time.perf_counter() - self.rhythm.start_time
-        song_time = current_time - self.rhythm.lead_in  # Actual song time
+        song_time = current_time - self.rhythm.lead_in 
 
         beat_times = self.song.beat_times
         if not beat_times or len(beat_times) < 2:
-            # Fallback to calculated beats
             loop_beats = 2
             beat_phase = (current_time / self.rhythm.beat_duration) % loop_beats
             normalized = beat_phase / loop_beats
         else:
-            # Find current beat index using actual beat times
             current_beat_idx = 0
             for i, bt in enumerate(beat_times):
                 if bt <= song_time:
@@ -159,7 +158,6 @@ class Game:
                 else:
                     break
 
-            # Calculate phase within current beat
             if current_beat_idx < len(beat_times) - 1:
                 beat_start = beat_times[current_beat_idx]
                 beat_end = beat_times[current_beat_idx + 1]
@@ -168,7 +166,6 @@ class Game:
             else:
                 phase_in_beat = 0
 
-            # Animation loops every 2 beats
             loop_beats = 2
             beat_in_loop = (current_beat_idx % loop_beats) + phase_in_beat
             normalized = beat_in_loop / loop_beats
@@ -241,7 +238,8 @@ class Game:
 
     def update_dynamic_scroll_speed(self, current_time: float):
         """Smoothly interpolate scroll speed based on energy shifts"""
-        song_time = current_time
+        # Convert to actual song time (subtract lead-in)
+        song_time = current_time - self.rhythm.lead_in
 
         target_speed = self.base_scroll_speed * self.pace_bias
 
@@ -254,35 +252,30 @@ class Game:
         if active_shift:
             target_speed *= active_shift.scroll_modifier
 
-        # Smooth acceleration/deceleration with lerp
-        # Faster lerp when speeding up, slower when slowing down for drama
         if target_speed > self.scroll_speed:
-            lerp_factor = 0.06  # Speed up gradually
+            lerp_factor = 0.06
         else:
-            lerp_factor = 0.04  # Slow down more gradually
+            lerp_factor = 0.04
 
         self.scroll_speed += (target_speed - self.scroll_speed) * lerp_factor
 
     def draw_speed_arrow(self, x: int, timeline_y: int, timeline_height: int, speed_up: bool):
         """Draw a speed change arrow spanning the full measure line"""
-        # Colors: bright cyan for speed up, softer blue for slow down
         if speed_up:
             arrow_color = (0, 200, 255)
             glow_color = (0, 100, 200, 80)
         else:
-            arrow_color = (100, 150, 255)
+            arrow_color = (200, 150, 100)
             glow_color = (50, 100, 180, 80)
 
         arrow_height = timeline_height  # Span full measure line
         arrow_width = 24
 
-        # Arrow points spanning the timeline
         top_y = timeline_y - arrow_height // 2
         bottom_y = timeline_y + arrow_height // 2
         center_y = timeline_y
 
         if speed_up:
-            # Rightward double chevron (>>)
             for offset in [-8, 8]:
                 points = [
                     (x - arrow_width // 2 + offset, top_y),
@@ -292,7 +285,6 @@ class Game:
                 pygame.draw.polygon(self.screen, arrow_color, points)
                 pygame.draw.polygon(self.screen, (255, 255, 255), points, 2)
         else:
-            # Leftward double chevron (<<)
             for offset in [-8, 8]:
                 points = [
                     (x + arrow_width // 2 + offset, top_y),
@@ -335,13 +327,10 @@ class Game:
 
         current_time = time.perf_counter() - self.rhythm.start_time
 
-        # --- DYNAMIC SCROLL: Adjust speed based on energy shifts
         self.update_dynamic_scroll_speed(current_time)
 
-        # --- SHOCKWAVE: Update active shockwaves
         self.update_shockwaves(dt)
 
-        # --- CAT
         self.update_cat_animation()
         if self.cat_frame:
             cat_scaled = pygame.transform.scale(self.cat_frame, (230, 250))
@@ -398,7 +387,6 @@ class Game:
                     self.score = self.rhythm.get_score()
                     self.used_current_char = True
                 else:
-                    # HANDLE MISSES
                     judgment = result['judgment']
                     if judgment == 'wrong':
                         self.show_message("Wrong Key!", 0.8)
@@ -445,7 +433,7 @@ class Game:
         is_current: bool,
         current_char_idx: int,
         fading_out: bool = False,
-        adjacent_word_width: int = 0  # NEW parameter
+        adjacent_word_width: int = 0
     ):
         """Draw a word with 3D carousel rotation animation"""
         if not word:
@@ -457,7 +445,7 @@ class Game:
             char_spacing = base_char_spacing * 0.7
         elif position == 'left':
             char_spacing = base_char_spacing * 0.7
-        else:  #center
+        else:
             char_spacing = base_char_spacing
         
         total_width = len(word) * char_spacing
@@ -685,9 +673,11 @@ class Game:
 
         # --- draw speed change arrows at energy shift boundaries
         timeline_height = 100  # Matches measure line height (±50 from center)
+        lead_in = self.rhythm.lead_in
 
         for shift in self.energy_shifts:
-            shift_time = shift.start_time
+            # Add lead_in to shift time to align with beatmap timeline
+            shift_time = shift.start_time + lead_in
             time_until = shift_time - current_time
 
             if -0.5 < time_until < 5.0:

@@ -5,18 +5,27 @@ from . import models as M
 from typing import Optional
 
 
-def calculate_lead_in(bpm: float, min_seconds: float = C.LEAD_IN_MIN_SECONDS) -> float:
+def calculate_lead_in(
+    beat_times: list[float],
+    min_seconds: float = C.LEAD_IN_MIN_SECONDS
+) -> float:
     """
-    Calculate lead-in time snapped to the nearest measure boundary
-    that is greater than min_seconds.
+    Calculate lead-in time snapped to exact measure boundaries using actual beat frames.
+    Returns the time of the first measure boundary that exceeds min_seconds.
     """
-    beat_duration = 60 / bpm
-    measure_duration = beat_duration * C.BEATS_PER_MEASURE
+    if len(beat_times) < C.BEATS_PER_MEASURE * 2:
+        return min_seconds
 
-    # Find smallest number of measures >= min_seconds
-    num_measures = math.ceil(min_seconds / measure_duration)
+    for i in range(0, len(beat_times), C.BEATS_PER_MEASURE):
+        measure_time = beat_times[i]
+        if measure_time >= min_seconds:
+            return measure_time
 
-    return num_measures * measure_duration
+    last_measure_idx = (len(beat_times) // C.BEATS_PER_MEASURE) * C.BEATS_PER_MEASURE
+    if last_measure_idx < len(beat_times):
+        return beat_times[last_measure_idx]
+
+    return min_seconds
 
 class RhythmManager:
     """
@@ -28,7 +37,6 @@ class RhythmManager:
         self.beat_duration = 60 / bpm
         self.lead_in = lead_in
 
-        # Offset all event timestamps by lead_in time
         self.beat_map = [
             M.CharEvent(
                 char=e.char,

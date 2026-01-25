@@ -420,7 +420,6 @@ def generate_beatmap(word_list: list[str], song: M.Song) -> list[M.CharEvent]:
     events = assign_words_to_slots(measures, word_bank, beat_duration, intensity_profile)
     events = add_rhythm_variations(events, song)
 
-    # Final cleanup: remove duplicate/too-close events and cap per measure
     events = deduplicate_events(events, beat_duration, min_spacing=0.1)
 
     return events
@@ -438,17 +437,14 @@ def deduplicate_events(
     if not events:
         return events
 
-    # Sort by timestamp
     events = sorted(events, key=lambda e: e.timestamp)
 
-    # Remove events too close together (keep first occurrence)
     filtered: list[M.CharEvent] = []
     for event in events:
         if event.is_rest:
             filtered.append(event)
             continue
 
-        # Check if too close to last non-rest event
         last_char_event = None
         for e in reversed(filtered):
             if not e.is_rest:
@@ -458,7 +454,6 @@ def deduplicate_events(
         if last_char_event is None or (event.timestamp - last_char_event.timestamp) >= min_spacing:
             filtered.append(event)
 
-    # Cap events per measure
     measure_duration = beat_duration * C.BEATS_PER_MEASURE
     measure_events: dict[int, list[M.CharEvent]] = {}
 
@@ -470,16 +465,13 @@ def deduplicate_events(
             measure_events[measure_idx] = []
         measure_events[measure_idx].append(event)
 
-    # Find events to remove (exceeding cap per measure)
     events_to_remove: set[float] = set()
     for measure_idx, m_events in measure_events.items():
         if len(m_events) > C.MAX_SLOTS_PER_MEASURE:
-            # Keep highest priority (earliest) ones, remove excess
             excess = m_events[C.MAX_SLOTS_PER_MEASURE:]
             for e in excess:
                 events_to_remove.add(e.timestamp)
 
-    # Build final list
     final = [e for e in filtered if e.is_rest or e.timestamp not in events_to_remove]
 
     return final
