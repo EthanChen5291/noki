@@ -35,12 +35,13 @@ MAX_PAUSE = 2.0
 # Intervals of 0.5 here to stick to eight notes (because 0.5 of a beat is a half beat) for playability 
 # since triplets (0.33) are weird and sixteenth notes (0.25) are prob too fast
 
-PAUSE_ROUND_THRESHOLD = 0.5
+PAUSE_ROUND_THRESHOLD = 0.2
 MIN_BEAT_GAP = 0.25  # gap between each beat. want to incorporate later as a guard/check
 MAX_BEATMAP_DIFF = 3 # beats
 SNAP_GRID = 0.5
 
 MELODY_SEARCH_WINDOW = 0.2 # how far song melody notes will be looked for when aligning notes with melody
+MIN_CHAR_SPACING = 0.15 # minimum 150ms between characters
 
 BUILD_UP_WORDS = ["rush", "hope", "more", "next"]
 

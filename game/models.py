@@ -25,6 +25,15 @@ class IntensityProfile:
 
 # --- beatmap generator
 
+@dataclass
+class RhythmSlot:
+    """A potential character placement slot based on audio analysis"""
+    time: float
+    intensity: float
+    priority: int  # 1=weak, 2=medium, 3=strong
+    is_filled: bool
+    beat_position: float
+    
 class RestType(Enum):
      PAUSE = auto()
      FILL = auto()

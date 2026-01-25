@@ -67,8 +67,11 @@ class RhythmManager:
             return None
 
         event = self.beat_map[self.char_event_idx]
-
-        if event.char == event.word_text[0]:
+        
+        if not event.word_text:
+            return self.last_word
+    
+        if event.char_idx == 0:
             self.last_word = event.word_text
         
         return self.last_word
