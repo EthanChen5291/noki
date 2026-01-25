@@ -152,9 +152,16 @@ def select_word_for_measure(
 
 # ==================== SLOT ASSIGNMENT ====================
 
+def find_next_measure_time(measures, start_idx, fallback_time):
+    for j in range(start_idx + 1, len(measures)):
+        if measures[j]:  # non-empty measure
+            return measures[j][0].time
+    return fallback_time
+
 def assign_words_to_slots(
     measures: list[list[M.RhythmSlot]],
     word_bank: list[M.Word],
+    beat_duration: float,
     intensity_profile: Optional[M.IntensityProfile] = None
 ) -> list[M.CharEvent]:
     """
@@ -176,6 +183,13 @@ def assign_words_to_slots(
             avg_intensity = sum(intensity_profile.section_intensities) / len(intensity_profile.section_intensities)
             intensity_ratio = intensity_profile.section_intensities[section_idx] / (avg_intensity + 1e-6)
         
+        if intensity_profile and section_idx < len(intensity_profile.section_intensities):
+            intensity = intensity_profile.section_intensities[section_idx]
+            avg = sum(intensity_profile.section_intensities) / len(intensity_profile.section_intensities)
+
+            if intensity < avg * 0.6 and random.random() < 0.5:
+                continue
+            
         word = select_word_for_measure(
             len(measure_slots),
             remaining_words,
@@ -209,8 +223,11 @@ def assign_words_to_slots(
             slot.is_filled = True
         
         if measure_idx < len(measures) - 1:
-            next_measure_start = measures[measure_idx + 1][0].time if measure_idx + 1 < len(measures) else selected_slots[-1].time + 1.0
-            rest_duration = next_measure_start - selected_slots[-1].time
+            next_measure_start = find_next_measure_time(
+                measures,
+                measure_idx,
+                selected_slots[-1].time + beat_duration
+            )
             
             events.append(M.CharEvent(
                 char="",
@@ -379,7 +396,7 @@ def generate_beatmap(word_list: list[str], song: M.Song) -> list[M.CharEvent]:
     measures = adjust_slots_by_intensity(measures, intensity_profile, beat_duration)
     
     word_bank = get_words_with_rhythm_info(word_list, beat_duration)
-    events = assign_words_to_slots(measures, word_bank, intensity_profile)
+    events = assign_words_to_slots(measures, word_bank, beat_duration, intensity_profile)
     events = add_rhythm_variations(events, song)
     
     return events
