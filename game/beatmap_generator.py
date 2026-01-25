@@ -176,7 +176,7 @@ def get_base_pause(
 
     return ideal_pause
 
-def get_beat_offset(remaining_beats: float):
+def get_beat_offset(remaining_beats: float): # WILL PROBABLY DELETE
     """Returns an offset that rounds the current beat to the start of the measure
     if offset < PAUSE_ROUND_THRESHOLD, else returns 0."""
     current_section_beat = C.BEATS_PER_SECTION - remaining_beats
@@ -187,7 +187,7 @@ def get_beat_offset(remaining_beats: float):
             return -beat_inside_measure
             
         elif (C.BEATS_PER_MEASURE - beat_inside_measure < C.PAUSE_ROUND_THRESHOLD):
-            return beat_inside_measure
+            return (C.BEATS_PER_MEASURE - beat_inside_measure)
     
     return 0
 
@@ -519,35 +519,42 @@ def align_beatmap_to_song_duration(
         )
 
 
-def create_char_events(section_words : list[list[M.Word]], beat_duration : float) -> list[M.CharEvent]:
-    #char: str
-    #timestamp: float
-    #word_text: str
-    #beat_position: float
-    char_events: list[M.CharEvent] = []
+def create_char_events(section_words: list[list[M.Word]], beat_duration: float) -> list[M.CharEvent]:
+    """Converts sections of words into chronological character events.
+    A CharEvent yields (char, timestamp, word, char_index, beat_position, section, is_rest)"""
+    events: list[M.CharEvent] = []
     curr_beat = 0.0
 
     for section_idx, section in enumerate(section_words):
         for word in section:
-            if word.text != "":
-                char_beat_duration = word.snapped_beats / len(word.text)
-
-                for i, char in enumerate(word.text):
-                    char_events.append(
-                        M.CharEvent(
-                            char=char,
-                            timestamp=curr_beat * beat_duration,
-                            word_text=word.text,
-                            char_idx=i,
-                            beat_position=curr_beat,
-                            section=section_idx
-                        )
-                    )
-                    curr_beat += char_beat_duration
-            else:
+            if word.rest_type == M.RestType.PAUSE:
+                events.append(M.CharEvent(
+                    char="",
+                    timestamp=curr_beat * beat_duration,
+                    word_text="",
+                    char_idx=-1,
+                    beat_position=curr_beat,
+                    section=section_idx,
+                    is_rest=True,
+                ))
                 curr_beat += word.snapped_beats
-    
-    return char_events
+                continue
+
+            if word.text:
+                char_beat_duration = word.snapped_beats / len(word.text)
+                for i, ch in enumerate(word.text):
+                    events.append(M.CharEvent(
+                        char=ch,
+                        timestamp=curr_beat * beat_duration,
+                        word_text=word.text,
+                        char_idx=i,
+                        beat_position=curr_beat,
+                        section=section_idx,
+                        is_rest=False,
+                    ))
+                    curr_beat += char_beat_duration
+
+    return events
 
 def get_max_words(beat_duration: float, num_sections: int, avg_word_len: float) -> int:
     """Returns the max possible words to fill num_sections based off TARGET_CPS"""
@@ -621,6 +628,8 @@ def align_chars_to_melody(events: list[M.CharEvent], song: M.Song, beats_per_sec
     aligned: list[M.CharEvent] = []
     min_char_spacing = 0.15  # minimum 150ms between characters
     
+    beat_duration = 60 / song.bpm
+
     for e in events:
         if e.word_text == "":#skip pauses
             aligned.append(e)
@@ -650,7 +659,7 @@ def align_chars_to_melody(events: list[M.CharEvent], song: M.Song, beats_per_sec
             timestamp=new_time,
             word_text=e.word_text,
             char_idx=e.char_idx,
-            beat_position=e.beat_position,
+            beat_position=e.timestamp / beat_duration,
             section=e.section
         ))
     

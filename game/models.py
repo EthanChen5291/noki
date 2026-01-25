@@ -46,6 +46,7 @@ class CharEvent:
     char_idx: int
     beat_position: float
     section: int
+    is_rest: bool = False
     hit: bool = False
     #section_idx: int
 
