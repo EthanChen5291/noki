@@ -394,7 +394,11 @@ def generate_beatmap(word_list: list[str], song: M.Song) -> list[M.CharEvent]:
     
     # adjust slots based on intensity
     measures = adjust_slots_by_intensity(measures, intensity_profile, beat_duration)
-    
+
+    for i, measure in enumerate(measures):
+        if len(measure) > C.MAX_SLOTS_PER_MEASURE:
+            measures[i] = sorted(measure, key=lambda s: s.priority, reverse=True)[:C.MAX_SLOTS_PER_MEASURE]
+
     word_bank = get_words_with_rhythm_info(word_list, beat_duration)
     events = assign_words_to_slots(measures, word_bank, beat_duration, intensity_profile)
     events = add_rhythm_variations(events, song)
