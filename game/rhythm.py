@@ -1,81 +1,306 @@
 import time
 from . import constants as C
 from . import models as M
+from typing import Optional
 
 class RhythmManager:
+    """
+    Manages rhythm gameplay timing, scoring, and feedback.
+    Enhanced for modern rhythm game features.
+    """
     
     def __init__(self, beat_map: list[M.CharEvent], bpm: float):
         self.beat_map = beat_map
+        self.bpm = bpm
+        self.beat_duration = 60 / bpm
+        
+        # Playback state
         self.char_event_idx = 0
         self.start_time = time.perf_counter()
+        
+        # Word tracking
+        self.current_word_idx = 0
         self.last_word = None
-        self.last_char = None
-        self.beat_duration = 60 / bpm
+        
+        # Accuracy tracking
+        self.combo = 0
+        self.max_combo = 0
+        self.perfect_hits = 0
+        self.good_hits = 0
+        self.miss_count = 0
+        
+        # Filter out rest events for gameplay
+        self.playable_events = [e for e in beat_map if not e.is_rest]
+        
+        # Pre-calculate timing windows
+        self._setup_timing_windows()
+    
+    def _setup_timing_windows(self):
+        """Define timing windows like modern rhythm games"""
+        # Based on beat duration for adaptive difficulty
+        base_window = min(0.15, self.beat_duration * 0.4)
+        
+        self.timing_windows = {
+            'perfect': base_window * 0.5,  # ±50% of base window
+            'good': base_window,            # ±100% of base window  
+            'ok': base_window * 1.5,        # ±150% of base window
+        }
     
     def update(self):
-        """Advance to next character if timestamp has passed"""
-        if self.char_event_idx >= len(self.beat_map):
+        """Advance through the beatmap based on elapsed time"""
+        if self.is_finished():
             return
         
         elapsed = time.perf_counter() - self.start_time
         current_event = self.beat_map[self.char_event_idx]
         
-        if elapsed >= current_event.timestamp:
-            self.char_event_idx += 1
+        # Auto-advance past rest events
+        while self.char_event_idx < len(self.beat_map) and current_event.is_rest:
+            if elapsed >= current_event.timestamp:
+                self.char_event_idx += 1
+                if self.char_event_idx < len(self.beat_map):
+                    current_event = self.beat_map[self.char_event_idx]
+                else:
+                    break
+        
+        # Check if current event should be auto-missed
+        if self.char_event_idx < len(self.beat_map):
+            current_event = self.beat_map[self.char_event_idx]
+            miss_threshold = current_event.timestamp + self.timing_windows['ok']
+            
+            if elapsed > miss_threshold and not current_event.is_rest:
+                # Auto-miss: player was too late
+                self._register_miss()
+                self.char_event_idx += 1
+    
+    def check_input(self, typed_char: str) -> dict:
+        """
+        Check if typed character matches current expected character.
+        Returns judgment info like modern rhythm games.
+        
+        Returns:
+            dict with keys: 'hit', 'judgment', 'time_diff', 'combo'
+        """
+        if self.is_finished():
+            return {'hit': False, 'judgment': 'miss', 'time_diff': 0, 'combo': self.combo}
+        
+        current_event = self.current_event()
+        if not current_event or current_event.is_rest:
+            return {'hit': False, 'judgment': 'miss', 'time_diff': 0, 'combo': self.combo}
+        
+        expected_char = current_event.char
+        
+        # Check character match
+        if typed_char != expected_char:
+            self._register_miss()
+            return {'hit': False, 'judgment': 'wrong', 'time_diff': 0, 'combo': 0}
+        
+        # Check timing
+        elapsed = time.perf_counter() - self.start_time
+        time_diff = abs(elapsed - current_event.timestamp)
+        
+        judgment = self._get_judgment(time_diff)
+        
+        if judgment == 'miss':
+            self._register_miss()
+            return {'hit': False, 'judgment': 'miss', 'time_diff': time_diff, 'combo': 0}
+        
+        # Successful hit!
+        self._register_hit(judgment)
+        current_event.hit = True
+        self.char_event_idx += 1
+        
+        return {
+            'hit': True,
+            'judgment': judgment,
+            'time_diff': time_diff,
+            'combo': self.combo,
+            'is_word_complete': self._is_word_complete()
+        }
+    
+    def _get_judgment(self, time_diff: float) -> str:
+        """Determine hit quality based on timing accuracy"""
+        if time_diff <= self.timing_windows['perfect']:
+            return 'perfect'
+        elif time_diff <= self.timing_windows['good']:
+            return 'good'
+        elif time_diff <= self.timing_windows['ok']:
+            return 'ok'
+        else:
+            return 'miss'
+    
+    def _register_hit(self, judgment: str):
+        """Register a successful hit and update combo"""
+        self.combo += 1
+        self.max_combo = max(self.max_combo, self.combo)
+        
+        if judgment == 'perfect':
+            self.perfect_hits += 1
+        elif judgment == 'good':
+            self.good_hits += 1
+    
+    def _register_miss(self):
+        """Register a miss and break combo"""
+        self.combo = 0
+        self.miss_count += 1
+    
+    def _is_word_complete(self) -> bool:
+        """Check if the current word was just completed"""
+        if self.char_event_idx >= len(self.beat_map):
+            return True
+        
+        prev_idx = self.char_event_idx - 1
+        if prev_idx < 0:
+            return False
+        
+        prev_event = self.beat_map[prev_idx]
+        if prev_event.is_rest:
+            return False
+        
+        # Word is complete if we just hit the last character
+        return (prev_event.char_idx == len(prev_event.word_text) - 1 if prev_event.word_text else False)
+    
+    # ==================== TIMING CHECKS ====================
     
     def on_beat(self) -> bool:
-        """Check if current time is within grace period of current beat"""
-        if self.char_event_idx >= len(self.beat_map):
+        """Check if current time is within the 'ok' timing window"""
+        if self.is_finished():
+            return False
+        
+        current_event = self.current_event()
+        if not current_event or current_event.is_rest:
             return False
         
         elapsed = time.perf_counter() - self.start_time
-        current_event = self.beat_map[self.char_event_idx]
-        
         time_diff = abs(elapsed - current_event.timestamp)
-        return (time_diff <= C.GRACE) 
+        
+        return time_diff <= self.timing_windows['ok']
     
-    def current_event(self) -> M.CharEvent:
+    def is_in_perfect_window(self) -> bool:
+        """Check if within perfect timing window (for visual feedback)"""
+        if self.is_finished():
+            return False
+        
+        current_event = self.current_event()
+        if not current_event or current_event.is_rest:
+            return False
+        
+        elapsed = time.perf_counter() - self.start_time
+        time_diff = abs(elapsed - current_event.timestamp)
+        
+        return time_diff <= self.timing_windows['perfect']
+    
+    # ==================== GETTERS ====================
+    
+    def current_event(self) -> Optional[M.CharEvent]:
         """Gets the current beat event"""
-        return self.beat_map[self.char_event_idx]
-
-    def current_expected_char(self) -> str | None:
-        """Get the character the player should type currently"""
         if self.char_event_idx >= len(self.beat_map):
             return None
-        
-        event = self.beat_map[self.char_event_idx]
-        
-        if event.char == "":
+        return self.beat_map[self.char_event_idx]
+    
+    def current_expected_char(self) -> Optional[str]:
+        """Get the character the player should type currently"""
+        event = self.current_event()
+        if not event or event.is_rest or not event.char:
             return None
-        
         return event.char
     
-    def current_expected_index(self) -> int | None:
-        """Get the character the player should type currently"""
-        if self.char_event_idx >= len(self.beat_map):
-            return None
+    def current_expected_word(self) -> Optional[str]:
+        """Get the current word being typed"""
+        event = self.current_event()
         
-        event = self.beat_map[self.char_event_idx]
-        
-        if event.char == "":
-            return None
-        
-        return event.char_idx
-    
-    def current_expected_word(self) -> str | None:
-        if self.char_event_idx >= len(self.beat_map):
-            return None
-
-        event = self.beat_map[self.char_event_idx]
-        
-        if not event.word_text:
+        if not event or event.is_rest:
             return self.last_word
-    
-        if event.char_idx == 0:
+        
+        if event.word_text and event.char_idx == 0:
             self.last_word = event.word_text
         
         return self.last_word
     
+    def get_upcoming_events(self, lookahead_time: float = 3.0) -> list[M.CharEvent]:
+        """
+        Get events coming up in the next N seconds (for visualization).
+        Useful for scrolling note highways.
+        """
+        if self.is_finished():
+            return []
+        
+        current_time = time.perf_counter() - self.start_time
+        upcoming = []
+        
+        for event in self.beat_map[self.char_event_idx:]:
+            if event.timestamp - current_time > lookahead_time:
+                break
+            upcoming.append(event)
+        
+        return upcoming
+    
+    def get_progress(self) -> float:
+        """Get completion percentage (0.0 to 1.0)"""
+        if not self.beat_map:
+            return 1.0
+        return self.char_event_idx / len(self.beat_map)
+    
     def is_finished(self) -> bool:
         """Check if song is complete"""
         return self.char_event_idx >= len(self.beat_map)
+    
+    # ==================== SCORING ====================
+    
+    def get_score(self) -> int:
+        """
+        Calculate score based on modern rhythm game scoring.
+        Perfect hits are worth more, combo multiplier applies.
+        """
+        base_score = (
+            self.perfect_hits * 300 +
+            self.good_hits * 100
+        )
+        
+        # Combo multiplier (max 2x at 50+ combo)
+        combo_multiplier = min(1.0 + (self.max_combo / 100), 2.0)
+        
+        return int(base_score * combo_multiplier)
+    
+    def get_accuracy(self) -> float:
+        """Calculate accuracy percentage (0-100%)"""
+        total_notes = len([e for e in self.beat_map if not e.is_rest])
+        if total_notes == 0:
+            return 100.0
+        
+        # Weight different judgments
+        weighted_hits = (
+            self.perfect_hits * 1.0 +
+            self.good_hits * 0.7
+        )
+        
+        return min(100.0, (weighted_hits / total_notes) * 100)
+    
+    def get_rank(self) -> str:
+        """Get letter rank based on accuracy (like DDR/osu!)"""
+        accuracy = self.get_accuracy()
+        
+        if accuracy >= 95:
+            return 'S'
+        elif accuracy >= 90:
+            return 'A'
+        elif accuracy >= 80:
+            return 'B'
+        elif accuracy >= 70:
+            return 'C'
+        else:
+            return 'D'
+    
+    def get_stats(self) -> dict:
+        """Get comprehensive gameplay statistics"""
+        return {
+            'score': self.get_score(),
+            'accuracy': self.get_accuracy(),
+            'rank': self.get_rank(),
+            'combo': self.combo,
+            'max_combo': self.max_combo,
+            'perfect': self.perfect_hits,
+            'good': self.good_hits,
+            'misses': self.miss_count,
+            'progress': self.get_progress()
+        }

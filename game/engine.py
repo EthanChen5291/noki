@@ -8,7 +8,14 @@ import os
 from . import constants as C
 from .rhythm import RhythmManager
 from .input import Input
-from .beatmap_generator import generate_beatmap, get_song_info
+from .beatmap_generator import generate_beatmap
+from analysis.audio_analysis import (
+    analyze_song_intensity, 
+    get_sb_info, 
+    group_info_by_section, 
+    filter_sb_info,
+    get_song_info
+)
 
 pygame.init()
 
@@ -147,15 +154,30 @@ class Game:
                 if expected is None:
                     break
 
-                if key == expected and self.rhythm.on_beat():
-                    event = self.rhythm.current_event()
-                    event.hit = True
-                    self.show_message("Perfect!", 1)
-                    self.score += 1
+                result = self.rhythm.check_input(key)
+                
+                if result['hit']:
+                    judgment = result['judgment']
+                    combo = result['combo']
+                    
+                    if judgment == 'perfect':
+                        self.show_message(f"PERFECT! ×{combo}", 0.8)
+                    elif judgment == 'good':
+                        self.show_message(f"Good ×{combo}", 0.8)
+                    elif judgment == 'ok':
+                        self.show_message(f"OK ×{combo}", 0.8)
+                    
+                    self.score = self.rhythm.get_score()
                     self.used_current_char = True
                 else:
-                    self.show_message("Miss!", 1)
-                    self.misses += 1
+                    # HANDLE MISSES
+                    judgment = result['judgment']
+                    if judgment == 'wrong':
+                        self.show_message("Wrong Key!", 0.8)
+                    else:
+                        self.show_message("Miss!", 0.8)
+                    
+                    self.misses = self.rhythm.miss_count
                     self.used_current_char = True
         
 
@@ -163,14 +185,17 @@ class Game:
         
         # ----- SCORE / MISSES
 
-        score_text = self.font.render(f"Score: {self.score}", True, (255, 255, 255))
-        miss_text = self.font.render(f"Misses: {self.misses}", True, (255, 100, 100))
-        self.screen.blit(score_text, (1300, 750))
-        self.screen.blit(miss_text, (1300, 800))
-        
-        if self.message and self.message_duration > 0:
-            self.draw_text(self.message, False)
-            self.message_duration -= dt
+        stats = self.rhythm.get_stats()
+
+        score_text = self.font.render(f"Score: {stats['score']}", True, (255, 255, 255))
+        combo_text = self.font.render(f"Combo: {stats['combo']}", True, (255, 200, 0))
+        acc_text = self.font.render(f"Accuracy: {stats['accuracy']:.1f}%", True, (100, 255, 100))
+        rank_text = self.font.render(f"Rank: {stats['rank']}", True, (255, 255, 255))
+
+        self.screen.blit(score_text, (1300, 700))
+        self.screen.blit(combo_text, (1300, 750))
+        self.screen.blit(acc_text, (1300, 800))
+        self.screen.blit(rank_text, (1300, 850))
 
 
     # --- RENDER TIMELINE 
@@ -199,7 +224,7 @@ class Game:
                         line_x = char_x + centering_offset
                         pygame.draw.line(self.screen, (255, 255, 255), 
                                        (line_x, 200), (line_x + C.UNDERLINE_LEN, 200), 3)
-        
+
         # --- draw timeline
         timeline_y = 380
         timeline_start_x = 300
@@ -221,7 +246,7 @@ class Game:
         pygame.draw.line(self.screen, (0, 180, 220), 
                         (hit_marker_x, timeline_y  - C.HIT_MARKER_Y_OFFSET), 
                         (hit_marker_x, timeline_y + C.HIT_MARKER_Y_OFFSET), int(C.HIT_MARKER_WIDTH/2))
-        
+
         # --- draw beat markers/notes
         # take account of grace
         grace = (C.GRACE * C.SCROLL_SPEED)
