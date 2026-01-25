@@ -68,17 +68,24 @@ def get_duration(audio_path: str) -> int:
 
 def get_song_info(audio_path: str, expected_bpm: Optional[int], *, normalize: Optional[bool] =True) -> M.Song:
     """Gets the song at 'audio_path's duration and tempo (BPM).
-    
-    Can normalize bpm (check for triplet ambiguities) if doing raw BPM detection (no expected_bpm) with 'normalize'."""
+
+    Can normalize bpm (check for triplet ambiguities) if doing raw BPM detection (no expected_bpm) with 'normalize'.
+    Also extracts actual beat timestamps from librosa for drift-free rendering."""
     if expected_bpm:
         bpm = get_bpm(audio_path, expected_bpm)
     else:
         bpm = get_bpm(audio_path)
         if normalize:
             bpm = normalize_bpm(bpm)
-    
-    duration = get_duration(audio_path)
-    return M.Song(bpm, duration, audio_path)
+
+    # Extract actual beat times from librosa (drift-free)
+    y, sr = librosa.load(audio_path, sr=None)
+    duration = librosa.get_duration(y=y, sr=sr)
+
+    _, beat_frames = librosa.beat.beat_track(y=y, sr=sr, start_bpm=bpm, tightness=200)
+    beat_times = librosa.frames_to_time(beat_frames, sr=sr).tolist()
+
+    return M.Song(bpm, int(duration), audio_path, beat_times)
 
 def get_beat_intensities(beat_times: np.ndarray, onset_times: np.ndarray, onset_env: np.ndarray) -> list[float]:
     beat_intensities = []
@@ -130,53 +137,101 @@ def get_measure_intensities(beats: list[float], beats_per_measure: int) -> list[
         for i in range(0, len(beats), beats_per_measure)
     ]
 
-def detect_loudest_drop(audio_path: str, bpm: float, subdivisions: int = 4) -> Optional[M.DropEvent]:
+def detect_drops(
+    beat_times: list[float],
+    audio_path: str,
+    bpm: float,
+    beats_per_section: int = 8
+) -> list[M.DropEvent]:
     """
-    Detect the loudest drop/climax in the song.
-    Finds the subbeat with the largest intensity jump from the previous subbeat.
-    Returns the timestamp so the engine can match it to the nearest note.
+    Detect multiple drops/climaxes using accurate beat-frame-based section intensities.
+    Returns all drops that exceed a dynamic threshold based on the song's intensity profile.
     """
+    if len(beat_times) < beats_per_section * 2:
+        return []
+
     y, sr = librosa.load(audio_path, sr=None)
-
-    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, start_bpm=bpm)
-    beat_times = librosa.frames_to_time(beat_frames, sr=sr)
-
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
     onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr)
 
-    sb_times = get_sb_times(beat_times, subdivisions)
-    sb_intensities = get_sb_intensities(sb_times, onset_env, onset_times)
-
-    if len(sb_intensities) < 2:
-        return None
-
-    max_jump = 0.0
-    drop_idx = -1
-
-    for i in range(1, len(sb_intensities)):
-        jump = sb_intensities[i] - sb_intensities[i - 1]
-        if jump > max_jump:
-            max_jump = jump
-            drop_idx = i
-
-    if drop_idx < 0:
-        return None
-
-    drop_time = sb_times[drop_idx]
-    drop_intensity = sb_intensities[drop_idx]
-
-    avg_intensity = sum(sb_intensities) / len(sb_intensities)
-    intensity_ratio = drop_intensity / (avg_intensity + 1e-6)
-
-    beat_duration = 60 / bpm
-    section_idx = int(drop_time / (beat_duration * 16))
-
-    return M.DropEvent(
-        timestamp=drop_time,
-        intensity=drop_intensity,
-        intensity_ratio=intensity_ratio,
-        section_idx=section_idx
+    # Calculate beat intensities using actual beat times
+    beat_intensities = get_aggro_beat_intensities(
+        np.array(beat_times), onset_times, onset_env
     )
+
+    # Group into sections using actual beat times
+    num_sections = len(beat_intensities) // beats_per_section
+    section_intensities: list[float] = []
+    section_start_times: list[float] = []
+
+    for sec_idx in range(num_sections):
+        beat_start = sec_idx * beats_per_section
+        beat_end = beat_start + beats_per_section
+
+        sec_beats = beat_intensities[beat_start:beat_end]
+        section_intensities.append(float(np.max(sec_beats)) if sec_beats else 0.0)
+
+        # Use actual beat time for section start
+        if beat_start < len(beat_times):
+            section_start_times.append(beat_times[beat_start])
+
+    if len(section_intensities) < 2:
+        return []
+
+    avg_intensity = float(np.mean(section_intensities))
+    max_intensity = float(np.max(section_intensities))
+    intensity_range = max_intensity - avg_intensity
+
+    if avg_intensity <= 1e-6 or intensity_range <= 1e-6:
+        return []
+
+    # Dynamic threshold based on song's intensity range
+    # Threshold is relative to the song's own dynamics
+    drop_threshold = avg_intensity + (intensity_range * 0.4)
+
+    drops: list[M.DropEvent] = []
+    cooldown_sections = 3  # Minimum sections between drops
+    last_drop_idx = -cooldown_sections
+
+    for i in range(1, len(section_intensities)):
+        current = section_intensities[i]
+        previous = section_intensities[i - 1]
+
+        # Check for significant intensity jump
+        jump = current - previous
+        jump_ratio = jump / (avg_intensity + 1e-6)
+
+        # Trigger if: big jump AND current exceeds threshold AND not in cooldown
+        if (jump_ratio > 0.25 and
+            current > drop_threshold and
+            i - last_drop_idx >= cooldown_sections):
+
+            intensity_ratio = current / (avg_intensity + 1e-6)
+
+            drops.append(M.DropEvent(
+                timestamp=section_start_times[i] if i < len(section_start_times) else 0.0,
+                intensity=current,
+                intensity_ratio=intensity_ratio,
+                section_idx=i
+            ))
+
+            last_drop_idx = i
+
+    return drops
+
+
+def detect_loudest_drop(audio_path: str, bpm: float, subdivisions: int = 4) -> Optional[M.DropEvent]:
+    """
+    Legacy function - detects single loudest drop.
+    Use detect_drops() for multiple drops.
+    """
+    y, sr = librosa.load(audio_path, sr=None)
+
+    _, beat_frames = librosa.beat.beat_track(y=y, sr=sr, start_bpm=bpm)
+    beat_times = librosa.frames_to_time(beat_frames, sr=sr).tolist()
+
+    drops = detect_drops(beat_times, audio_path, bpm)
+    return drops[0] if drops else None
 
 def get_sb_times(beat_times : np.ndarray, n : int = 4) -> list[float]:
     """

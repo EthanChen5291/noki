@@ -16,7 +16,7 @@ from analysis.audio_analysis import (
     group_info_by_section,
     filter_sb_info,
     get_song_info,
-    detect_loudest_drop,
+    detect_drops,
     classify_pace,
     calculate_energy_shifts
 )
@@ -100,11 +100,15 @@ class Game:
 
         self.input = Input()
 
-        # --- detect drop for shockwave effect
-        self.drop_event = detect_loudest_drop(self.song_path, self.song.bpm)
+        # --- detect multiple drops for shockwave effects
+        self.drop_events = detect_drops(
+            self.song.beat_times,
+            self.song_path,
+            self.song.bpm
+        )
         self.shockwaves: list[M.Shockwave] = []
-        self.drop_triggered = False
-        self.drop_note_idx = self._find_drop_note_idx()
+        self.drops_triggered: set[int] = set()  # Track which drops have been triggered
+        self.drop_note_indices = self._find_drop_note_indices()
 
         # --- classify pace and set scroll speed
         self.pace_profile = classify_pace(self.song_path, self.song.bpm)
@@ -138,34 +142,66 @@ class Game:
 
     def update_cat_animation(self):
         current_time = time.perf_counter() - self.rhythm.start_time
+        song_time = current_time - self.rhythm.lead_in  # Actual song time
 
-        # animation loop is TWO BEATSw
-        loop_beats = 2
-        beat_phase = (current_time / self.rhythm.beat_duration) % loop_beats
-        normalized = beat_phase / loop_beats
+        beat_times = self.song.beat_times
+        if not beat_times or len(beat_times) < 2:
+            # Fallback to calculated beats
+            loop_beats = 2
+            beat_phase = (current_time / self.rhythm.beat_duration) % loop_beats
+            normalized = beat_phase / loop_beats
+        else:
+            # Find current beat index using actual beat times
+            current_beat_idx = 0
+            for i, bt in enumerate(beat_times):
+                if bt <= song_time:
+                    current_beat_idx = i
+                else:
+                    break
+
+            # Calculate phase within current beat
+            if current_beat_idx < len(beat_times) - 1:
+                beat_start = beat_times[current_beat_idx]
+                beat_end = beat_times[current_beat_idx + 1]
+                beat_duration = beat_end - beat_start
+                phase_in_beat = (song_time - beat_start) / beat_duration if beat_duration > 0 else 0
+            else:
+                phase_in_beat = 0
+
+            # Animation loops every 2 beats
+            loop_beats = 2
+            beat_in_loop = (current_beat_idx % loop_beats) + phase_in_beat
+            normalized = beat_in_loop / loop_beats
 
         self.cat_frame_index = int(normalized * self.num_cat_frames) % self.num_cat_frames
         self.cat_frame = self.cat_frames[self.cat_frame_index]
 
-    def _find_drop_note_idx(self) -> int:
-        """Find the beatmap note index closest to the detected drop timestamp"""
-        if not self.drop_event or not self.rhythm.beat_map:
-            return -1
+    def _find_drop_note_indices(self) -> dict[int, int]:
+        """Find beatmap note indices closest to each drop timestamp.
+        Returns dict mapping drop_index -> note_index."""
+        if not self.drop_events or not self.rhythm.beat_map:
+            return {}
 
-        drop_time = self.drop_event.timestamp + self.rhythm.lead_in
-        best_idx = -1
-        best_diff = float('inf')
+        drop_to_note: dict[int, int] = {}
 
-        for i, event in enumerate(self.rhythm.beat_map):
-            if event.is_rest or not event.char:
-                continue
+        for drop_idx, drop in enumerate(self.drop_events):
+            drop_time = drop.timestamp + self.rhythm.lead_in
+            best_note_idx = -1
+            best_diff = float('inf')
 
-            diff = abs(event.timestamp - drop_time)
-            if diff < best_diff:
-                best_diff = diff
-                best_idx = i
+            for i, event in enumerate(self.rhythm.beat_map):
+                if event.is_rest or not event.char:
+                    continue
 
-        return best_idx
+                diff = abs(event.timestamp - drop_time)
+                if diff < best_diff:
+                    best_diff = diff
+                    best_note_idx = i
+
+            if best_note_idx >= 0:
+                drop_to_note[drop_idx] = best_note_idx
+
+        return drop_to_note
 
     def trigger_shockwave(self):
         """Spawn multiple expanding shockwave rings"""
@@ -187,10 +223,11 @@ class Game:
             self.shockwaves.append(shockwave)
 
     def check_drop_note_hit(self, hit_note_idx: int):
-        """Check if the hit note is the drop note and trigger shockwave"""
-        if not self.drop_triggered and hit_note_idx == self.drop_note_idx:
-            self.trigger_shockwave()
-            self.drop_triggered = True
+        """Check if the hit note is any drop note and trigger shockwave"""
+        for drop_idx, note_idx in self.drop_note_indices.items():
+            if drop_idx not in self.drops_triggered and hit_note_idx == note_idx:
+                self.trigger_shockwave()
+                self.drops_triggered.add(drop_idx)
 
     def update_shockwaves(self, dt: float):
         """Update and render active shockwaves"""
@@ -626,17 +663,20 @@ class Game:
                             radius
                         )
         
-        # --- beat grid lines
-        current_beat = current_time / self.rhythm.beat_duration
-        for i in range(int(current_beat) - 8, int(current_beat) + 16):
-            t = i * self.rhythm.beat_duration
+        # --- beat grid lines (using actual beat times from librosa)
+        beat_times = self.song.beat_times
+        lead_in = self.rhythm.lead_in
+
+        for i, beat_time in enumerate(beat_times):
+            # Offset by lead_in to match beatmap timestamps
+            t = beat_time + lead_in
             time_until = t - current_time
             x = hit_marker_x + time_until * self.scroll_speed
-            
+
             if timeline_start_x <= x <= timeline_end_x:
                 if i % 4 == 0:
                     # measure lines
-                    pygame.draw.line(self.screen, (255, 255, 255), 
+                    pygame.draw.line(self.screen, (255, 255, 255),
                                    (x, timeline_y - 50), (x, timeline_y + 50), 4)
                 else:
                     # beat lines

@@ -113,10 +113,11 @@ class CharEvent:
 # --- engine 
 
 class Song:
-    def __init__(self, bpm: float, duration: float, file_path: str):
+    def __init__(self, bpm: float, duration: float, file_path: str, beat_times: Optional[list[float]] = None):
         self.bpm = bpm
         self.duration = duration
         self.file_path = file_path
+        self.beat_times = beat_times or []  # Actual beat timestamps from librosa
 
 class Level:
     def __init__(self, word_bank: list[str], song_path: str, bpm: Optional[int] = None):
