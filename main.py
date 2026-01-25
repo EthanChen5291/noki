@@ -30,11 +30,21 @@ def main():
 
     # add a bpm correction button
 
+    # sometimes gets stuck on same word for multiple word durations (the next word switches but current word is stuck) whenever I mess up a few times
+    # want to regulate scroll speed based off 
+    # is there a way to read mood in a song and then maybe decrease the min distance between notes to make it more "chill" if it's a chill song?
+    #sometimes no pauses between words (clumping)
     
+    # make the word switch immediately if the character is pressed at the end of the word
+    # energy trend
+    
+    # section drift -> due to bpm drift
+    #visual UI:
+    # -- add power notes that cause a shockwave
 
     tutorial = Level(
         word_bank=wb2,
-        song_path=song_path + song_names[9],
+        song_path=song_path + song_names[0],
         bpm=96
         )
     

@@ -23,6 +23,36 @@ class IntensityProfile:
     beat_intensities: list[float]
     section_intensities: list[float]
 
+
+@dataclass(frozen=True)
+class DropEvent:
+    """Represents a detected drop/climax moment in the song"""
+    timestamp: float  # When the drop occurs (beat 1 of climax section)
+    intensity: float  # Raw intensity of the drop section
+    intensity_ratio: float  # How much louder than average
+    section_idx: int  # Which section this drop is in
+
+
+@dataclass
+class Shockwave:
+    """A single expanding shockwave circle"""
+    center_x: float
+    center_y: float
+    radius: float
+    max_radius: float
+    alpha: int  # 0-255 transparency
+    thickness: int
+    speed: float  # Pixels per second expansion rate
+
+    def update(self, dt: float) -> bool:
+        """Update shockwave, returns False if should be removed"""
+        self.radius += self.speed * dt
+        # Fade out as it expands
+        progress = self.radius / self.max_radius
+        self.alpha = int(255 * (1 - progress) * 0.6)  # Max 60% opacity
+        self.thickness = max(1, int(4 * (1 - progress)))
+        return self.radius < self.max_radius
+
 # --- beatmap generator
 
 @dataclass

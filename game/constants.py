@@ -32,6 +32,8 @@ BEATS_PER_SECTION = 16
 MIN_PAUSE = 0.5 #pause between each word
 IDEAL_PAUSE = 1.5
 MAX_PAUSE = 2.0
+
+MIN_WORD_GAP = 0.3  # 400ms gap to read upcoming word
 # Intervals of 0.5 here to stick to eight notes (because 0.5 of a beat is a half beat) for playability 
 # since triplets (0.33) are weird and sixteenth notes (0.25) are prob too fast
 
@@ -53,7 +55,7 @@ GRACE = 1  # secs
 
 # --- engine
 
-SCROLL_SPEED = 300
+SCROLL_SPEED = 400
 HIT_X = 730
 MISSED_COLOR = (255, 0, 0)
 COLOR = (255, 255, 255)

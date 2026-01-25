@@ -11,12 +11,14 @@ from .rhythm import RhythmManager
 from .input import Input
 from .beatmap_generator import generate_beatmap
 from analysis.audio_analysis import (
-    analyze_song_intensity, 
-    get_sb_info, 
-    group_info_by_section, 
+    analyze_song_intensity,
+    get_sb_info,
+    group_info_by_section,
     filter_sb_info,
-    get_song_info
+    get_song_info,
+    detect_loudest_drop
 )
+from . import models as M
 
 pygame.init()
 
@@ -92,8 +94,14 @@ class Game:
             song=self.song
         )
         self.rhythm = RhythmManager(beatmap, self.song.bpm)
-        
+
         self.input = Input()
+
+        # --- detect drop for shockwave effect
+        self.drop_event = detect_loudest_drop(self.song_path, self.song.bpm)
+        self.shockwaves: list[M.Shockwave] = []
+        self.drop_triggered = False
+        self.drop_note_idx = self._find_drop_note_idx()
 
         # --- play music
         pygame.mixer.init()
@@ -112,18 +120,106 @@ class Game:
 
     def update_cat_animation(self):
         current_time = time.perf_counter() - self.rhythm.start_time
-        
+
         # animation loop = 2 beats
         loop_beats = 2
         beat_phase = (current_time / self.rhythm.beat_duration) % loop_beats
         normalized = beat_phase / loop_beats
-        
+
         self.cat_frame_index = int(normalized * self.num_cat_frames) % self.num_cat_frames
         self.cat_frame = self.cat_frames[self.cat_frame_index]
 
+    def _find_drop_note_idx(self) -> int:
+        """Find the beatmap note index closest to the detected drop timestamp"""
+        if not self.drop_event or not self.rhythm.beat_map:
+            return -1
+
+        drop_time = self.drop_event.timestamp
+        best_idx = -1
+        best_diff = float('inf')
+
+        for i, event in enumerate(self.rhythm.beat_map):
+            if event.is_rest or not event.char:
+                continue
+
+            diff = abs(event.timestamp - drop_time)
+            if diff < best_diff:
+                best_diff = diff
+                best_idx = i
+
+        return best_idx
+
+    def trigger_shockwave(self):
+        """Spawn multiple expanding shockwave rings"""
+        center_x = self.screen.get_width() // 2
+        center_y = self.screen.get_height() // 2
+
+        num_rings = 5
+        for i in range(num_rings):
+            initial_radius = i * 30
+            shockwave = M.Shockwave(
+                center_x=center_x,
+                center_y=center_y,
+                radius=initial_radius,
+                max_radius=800,
+                alpha=150,
+                thickness=4,
+                speed=400 + i * 50
+            )
+            self.shockwaves.append(shockwave)
+
+    def check_drop_note_hit(self, hit_note_idx: int):
+        """Check if the hit note is the drop note and trigger shockwave"""
+        if not self.drop_triggered and hit_note_idx == self.drop_note_idx:
+            self.trigger_shockwave()
+            self.drop_triggered = True
+
+    def update_shockwaves(self, dt: float):
+        """Update and render active shockwaves"""
+        surviving = []
+        for wave in self.shockwaves:
+            if wave.update(dt):
+                surviving.append(wave)
+                self.render_shockwave(wave)
+
+        self.shockwaves = surviving
+
+    def render_shockwave(self, wave: M.Shockwave):
+        """Render a single shockwave ring with realistic gray coloring"""
+        if wave.alpha <= 0 or wave.radius <= 0:
+            return
+
+        diameter = int(wave.radius * 2) + wave.thickness * 2
+        if diameter <= 0:
+            return
+
+        surface = pygame.Surface((diameter, diameter), pygame.SRCALPHA)
+
+        gray_value = 180
+        color = (gray_value, gray_value, gray_value, wave.alpha)
+
+        center = diameter // 2
+        if wave.thickness > 0 and wave.radius > 0:
+            pygame.draw.circle(
+                surface,
+                color,
+                (center, center),
+                int(wave.radius),
+                wave.thickness
+            )
+
+        blit_x = int(wave.center_x - center)
+        blit_y = int(wave.center_y - center)
+        self.screen.blit(surface, (blit_x, blit_y))
+
     def update(self, dt: float) -> None:
-        self.screen.fill((0,0,0))
-        
+        self.screen.fill((0, 0, 0))
+
+        current_time = time.perf_counter() - self.rhythm.start_time
+
+        # --- SHOCKWAVE: Update active shockwaves
+        self.update_shockwaves(dt)
+
         # --- CAT
         self.update_cat_animation()
         if self.cat_frame:
@@ -168,7 +264,9 @@ class Game:
                 if result['hit']:
                     judgment = result['judgment']
                     combo = result['combo']
-                    
+
+                    self.check_drop_note_hit(current_char_idx)
+
                     if judgment == 'perfect':
                         self.show_message(f"PERFECT! ×{combo}", 0.8)
                     elif judgment == 'good':
@@ -210,11 +308,9 @@ class Game:
         if not self.rhythm.beat_map:
             return None
         
-        # Find the next word in the beatmap
         for i in range(self.rhythm.char_event_idx, len(self.rhythm.beat_map)):
             event = self.rhythm.beat_map[i]
             if event.word_text and event.char_idx == 0 and not event.is_rest:
-                # Found start of next word
                 if event.word_text != self.rhythm.current_expected_word():
                     return event.word_text
         
@@ -248,7 +344,7 @@ class Game:
         radius = 350  # radius of rotation circle
         center_offset = base_char_spacing / 2
         center_x = self.screen.get_width() // 2 + center_offset  # center of screen
-        center_y = 150  # vertical position (like in 3d space)
+        center_y = 180  # vertical position (like in 3d space)
         
         base_spacing = 100
         

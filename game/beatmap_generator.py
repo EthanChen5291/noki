@@ -171,45 +171,55 @@ def assign_words_to_slots(
     events: list[M.CharEvent] = []
     remaining_words = word_bank.copy()
     section_idx = 0
-    
+    last_word_end_time = -float('inf')
+    last_word_text = ""
+
     for measure_idx, measure_slots in enumerate(measures):
         if not measure_slots or not remaining_words:
             continue
-        
+
         section_idx = measure_idx // 4
-        
+
+        first_slot_time = measure_slots[0].time
+        if first_slot_time < last_word_end_time + C.MIN_WORD_GAP:
+            continue
+
         intensity_ratio = 1.0
         if intensity_profile and section_idx < len(intensity_profile.section_intensities):
             avg_intensity = sum(intensity_profile.section_intensities) / len(intensity_profile.section_intensities)
             intensity_ratio = intensity_profile.section_intensities[section_idx] / (avg_intensity + 1e-6)
-        
+
         if intensity_profile and section_idx < len(intensity_profile.section_intensities):
             intensity = intensity_profile.section_intensities[section_idx]
             avg = sum(intensity_profile.section_intensities) / len(intensity_profile.section_intensities)
 
             if intensity < avg * 0.6 and random.random() < 0.5:
                 continue
-            
+
+        candidates = [w for w in remaining_words if w.text != last_word_text]
+        if not candidates:
+            candidates = remaining_words
+
         word = select_word_for_measure(
             len(measure_slots),
-            remaining_words,
+            candidates,
             word_bank,
             intensity_ratio
         )
-        
+
         if not word or not word.text:
             continue
-        
+
         if word in remaining_words:
             remaining_words.remove(word)
-        
+
         chars_to_place = len(word.text)
-        
+
         sorted_slots = sorted(measure_slots, key=lambda s: s.priority, reverse=True)
         selected_slots = sorted_slots[:chars_to_place]
-        
+
         selected_slots.sort(key=lambda s: s.time)
-        
+
         for char_idx, (char, slot) in enumerate(zip(word.text, selected_slots)):
             events.append(M.CharEvent(
                 char=char,
@@ -221,30 +231,29 @@ def assign_words_to_slots(
                 is_rest=False
             ))
             slot.is_filled = True
-        
+
+        last_word_end_time = selected_slots[-1].time
+        last_word_text = word.text
+
         if measure_idx < len(measures) - 1:
-            next_measure_start = find_next_measure_time(
-                measures,
-                measure_idx,
-                selected_slots[-1].time + beat_duration
-            )
-            
+            rest_time = selected_slots[-1].time + 0.1
+
             events.append(M.CharEvent(
                 char="",
-                timestamp=selected_slots[-1].time,
+                timestamp=rest_time,
                 word_text="",
                 char_idx=-1,
                 beat_position=selected_slots[-1].beat_position,
                 section=section_idx,
                 is_rest=True
             ))
-        
+
         # recycle words if running low
         if len(remaining_words) < len(word_bank) * 0.3:
             for w in word_bank:
                 if w not in remaining_words:
                     remaining_words.append(w)
-    
+
     return events
 
 
@@ -264,7 +273,7 @@ def add_rhythm_variations(events: list[M.CharEvent], song: M.Song) -> list[M.Cha
     enhanced: list[M.CharEvent] = []
     
     for section in sections:
-        # 20% chance for BURST SECTION slightly faster/ more intense
+        # 20% chance for BURST which is slightly more intense
         if random.random() < 0.2:
             for e in section:
                 if not e.is_rest:
@@ -343,7 +352,7 @@ def adjust_slots_by_intensity(
         intensity_ratio = section_intensity / (avg_intensity + 1e-6)
         
         # ADJUST SLOT DENSITY BASED ON INTENSITY
-        if intensity_ratio > 1.3:  # Very loud section
+        if intensity_ratio > 1.3:  # very loud
             keep_slots = [s for s in measure_slots if s.priority >= 2]
             target_cps = C.TARGET_CPS * 1.2  # 20% faster
         elif intensity_ratio > 1.1:  # moderately loud
@@ -351,7 +360,7 @@ def adjust_slots_by_intensity(
             target_cps = C.TARGET_CPS * 1.1  # 10% faster
         elif intensity_ratio < 0.7:  # quiet section
             keep_slots = sorted(measure_slots, key=lambda s: s.priority, reverse=True)
-            keep_slots = keep_slots[:max(2, len(measure_slots) // 2)]  # Keep top half
+            keep_slots = keep_slots[:max(2, len(measure_slots) // 2)]
             target_cps = C.TARGET_CPS * 0.8  # 20% slower
         elif intensity_ratio < 0.9:  # slightly quiet
             keep_slots = [s for s in measure_slots if s.priority >= 3]
@@ -365,7 +374,7 @@ def adjust_slots_by_intensity(
             filtered = [keep_slots[0]]
             
             for slot in keep_slots[1:]:
-                if slot.time - filtered[-1].time >= 0.12:  # Min spacing
+                if slot.time - filtered[-1].time >= 0.12:
                     filtered.append(slot)
             
             adjusted_measures.append(filtered)
@@ -397,7 +406,9 @@ def generate_beatmap(word_list: list[str], song: M.Song) -> list[M.CharEvent]:
 
     for i, measure in enumerate(measures):
         if len(measure) > C.MAX_SLOTS_PER_MEASURE:
-            measures[i] = sorted(measure, key=lambda s: s.priority, reverse=True)[:C.MAX_SLOTS_PER_MEASURE]
+
+            measure_sorted = sorted(measure, key=lambda s: (-s.priority, s.time))
+            measures[i] = sorted(measure_sorted[:C.MAX_SLOTS_PER_MEASURE], key=lambda s: s.time)
 
     word_bank = get_words_with_rhythm_info(word_list, beat_duration)
     events = assign_words_to_slots(measures, word_bank, beat_duration, intensity_profile)
