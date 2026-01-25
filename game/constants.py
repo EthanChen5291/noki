@@ -52,6 +52,7 @@ BUILD_UP_WORDS = ["rush", "hope", "more", "next"]
 # --- rhythm manager
 
 GRACE = 1  # secs
+LEAD_IN_MIN_SECONDS = 2.0  # minimum lead-in time (will round up to nearest measure)
 
 # --- engine
 

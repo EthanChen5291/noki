@@ -33,6 +33,27 @@ class DropEvent:
     section_idx: int  # Which section this drop is in
 
 
+@dataclass(frozen=True)
+class PaceProfile:
+    """Classification of song pace/energy for scroll speed adjustment"""
+    bpm: float
+    onset_density: float  # Onsets per second
+    avg_intensity: float
+    intensity_variance: float
+    pace_score: float  # 0.0 to 1.0 (slow to fast)
+    scroll_multiplier: float  # Multiplier for base scroll speed
+
+
+@dataclass(frozen=True)
+class SectionEnergyShift:
+    """Represents a section with modified scroll speed due to energy change"""
+    section_idx: int
+    start_time: float  # When this section starts
+    end_time: float  # When this section ends
+    energy_delta: float  # Change from previous section (positive = more intense)
+    scroll_modifier: float  # Multiplier to apply on top of base scroll speed
+
+
 @dataclass
 class Shockwave:
     """A single expanding shockwave circle"""

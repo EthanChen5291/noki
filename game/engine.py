@@ -7,7 +7,7 @@ import os
 import math
 
 from . import constants as C
-from .rhythm import RhythmManager
+from .rhythm import RhythmManager, calculate_lead_in
 from .input import Input
 from .beatmap_generator import generate_beatmap
 from analysis.audio_analysis import (
@@ -16,7 +16,9 @@ from analysis.audio_analysis import (
     group_info_by_section,
     filter_sb_info,
     get_song_info,
-    detect_loudest_drop
+    detect_loudest_drop,
+    classify_pace,
+    calculate_energy_shifts
 )
 from . import models as M
 
@@ -93,7 +95,8 @@ class Game:
             word_list=level.word_bank,
             song=self.song
         )
-        self.rhythm = RhythmManager(beatmap, self.song.bpm)
+        lead_in = calculate_lead_in(self.song.bpm)
+        self.rhythm = RhythmManager(beatmap, self.song.bpm, lead_in=lead_in)
 
         self.input = Input()
 
@@ -102,6 +105,18 @@ class Game:
         self.shockwaves: list[M.Shockwave] = []
         self.drop_triggered = False
         self.drop_note_idx = self._find_drop_note_idx()
+
+        # --- classify pace and set scroll speed
+        self.pace_profile = classify_pace(self.song_path, self.song.bpm)
+        self.base_scroll_speed = C.SCROLL_SPEED * self.pace_profile.scroll_multiplier
+        self.scroll_speed = self.base_scroll_speed
+
+        # --- calculate dynamic energy shifts
+        self.energy_shifts = calculate_energy_shifts(
+            self.song_path,
+            self.song.bpm,
+            self.pace_profile.pace_score
+        )
 
         # --- play music
         pygame.mixer.init()
@@ -134,7 +149,8 @@ class Game:
         if not self.drop_event or not self.rhythm.beat_map:
             return -1
 
-        drop_time = self.drop_event.timestamp
+        # Account for lead-in offset in beatmap timestamps
+        drop_time = self.drop_event.timestamp + self.rhythm.lead_in
         best_idx = -1
         best_diff = float('inf')
 
@@ -184,6 +200,28 @@ class Game:
 
         self.shockwaves = surviving
 
+    def update_dynamic_scroll_speed(self, current_time: float):
+        """Adjust scroll speed based on current section's energy shift"""
+        # Account for lead-in offset
+        song_time = current_time
+
+        # Find if we're in an energy shift section
+        active_shift = None
+        for shift in self.energy_shifts:
+            if shift.start_time <= song_time < shift.end_time:
+                active_shift = shift
+                break
+
+        if active_shift:
+            # Apply the shift's modifier to base scroll speed
+            target_speed = self.base_scroll_speed * active_shift.scroll_modifier
+        else:
+            target_speed = self.base_scroll_speed
+
+        # Smooth transition to target speed (lerp)
+        lerp_factor = 0.08  # Adjust for faster/slower transitions
+        self.scroll_speed += (target_speed - self.scroll_speed) * lerp_factor
+
     def render_shockwave(self, wave: M.Shockwave):
         """Render a single shockwave ring with realistic gray coloring"""
         if wave.alpha <= 0 or wave.radius <= 0:
@@ -216,6 +254,9 @@ class Game:
         self.screen.fill((0, 0, 0))
 
         current_time = time.perf_counter() - self.rhythm.start_time
+
+        # --- DYNAMIC SCROLL: Adjust speed based on energy shifts
+        self.update_dynamic_scroll_speed(current_time)
 
         # --- SHOCKWAVE: Update active shockwaves
         self.update_shockwaves(dt)
@@ -514,17 +555,17 @@ class Game:
 
         # --- draw beat markers/notes
         # take account of grace
-        grace = (C.GRACE * C.SCROLL_SPEED)
+        grace = (C.GRACE * self.scroll_speed)
         hit_marker_x -= grace/6
-        
+
         for event in self.rhythm.beat_map:
             time_until_hit = event.timestamp - current_time
-            
+
             # --- calculate position
 
             if -0.75 < time_until_hit < 5.0:
-                
-                marker_x = hit_marker_x + (time_until_hit * C.SCROLL_SPEED)
+
+                marker_x = hit_marker_x + (time_until_hit * self.scroll_speed)
                 
                 if timeline_start_x <= marker_x <= timeline_end_x:
                     if event.char != "" and not event.hit:
@@ -547,7 +588,7 @@ class Game:
         for i in range(int(current_beat) - 8, int(current_beat) + 16):
             t = i * self.rhythm.beat_duration
             time_until = t - current_time
-            x = hit_marker_x + time_until * C.SCROLL_SPEED
+            x = hit_marker_x + time_until * self.scroll_speed
             
             if timeline_start_x <= x <= timeline_end_x:
                 if i % 4 == 0:

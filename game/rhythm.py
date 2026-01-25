@@ -1,35 +1,65 @@
 import time
+import math
 from . import constants as C
 from . import models as M
 from typing import Optional
+
+
+def calculate_lead_in(bpm: float, min_seconds: float = C.LEAD_IN_MIN_SECONDS) -> float:
+    """
+    Calculate lead-in time snapped to the nearest measure boundary
+    that is greater than min_seconds.
+    """
+    beat_duration = 60 / bpm
+    measure_duration = beat_duration * C.BEATS_PER_MEASURE
+
+    # Find smallest number of measures >= min_seconds
+    num_measures = math.ceil(min_seconds / measure_duration)
+
+    return num_measures * measure_duration
 
 class RhythmManager:
     """
     Manages rhythm gameplay timing, scoring, and feedback.
     Enhanced for modern rhythm game features.
     """
-    def __init__(self, beat_map: list[M.CharEvent], bpm: float):
-        self.beat_map = beat_map
+    def __init__(self, beat_map: list[M.CharEvent], bpm: float, lead_in: float = 0.0):
         self.bpm = bpm
         self.beat_duration = 60 / bpm
-        
+        self.lead_in = lead_in
+
+        # Offset all event timestamps by lead_in time
+        self.beat_map = [
+            M.CharEvent(
+                char=e.char,
+                timestamp=e.timestamp + lead_in,
+                word_text=e.word_text,
+                char_idx=e.char_idx,
+                beat_position=e.beat_position,
+                section=e.section,
+                is_rest=e.is_rest,
+                hit=e.hit
+            )
+            for e in beat_map
+        ]
+
         # playback state
         self.char_event_idx = 0
         self.start_time = time.perf_counter()
-        
+
         # word tracking
         self.current_word_idx = 0
         self.last_word = None
-        
+
         # accuracy tracking
         self.combo = 0
         self.max_combo = 0
         self.perfect_hits = 0
         self.good_hits = 0
         self.miss_count = 0
-        
-        self.playable_events = [e for e in beat_map if not e.is_rest]
-        
+
+        self.playable_events = [e for e in self.beat_map if not e.is_rest]
+
         self._setup_timing_windows()
     
     def _setup_timing_windows(self):

@@ -37,7 +37,9 @@ def main():
     
     # make the word switch immediately if the character is pressed at the end of the word
     # energy trend
-    
+
+    # energy trend + scroll speed
+
     # section drift -> due to bpm drift
     #visual UI:
     # -- add power notes that cause a shockwave
