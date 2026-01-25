@@ -377,64 +377,43 @@ def num_of_level(sb_info: list[M.SubBeatInfo], level: M.SubBeatIntensity) -> int
     """Returns the number of sub-beats in sb_info that match 'level'"""
     return len(filter_sb_info(sb_info, level))
 
-
 def classify_pace(audio_path: str, bpm: float) -> M.PaceProfile:
     """
-    Analyze audio features to classify song pace and calculate scroll speed multiplier.
+    Analyze audio features to classify song pace and compute scroll multiplier.
 
-    Features analyzed:
-    - BPM (tempo)
-    - Onset density (onsets per second)
-    - Average intensity
-    - Intensity variance (dynamic range)
+    Uses:
+    - BPM
+    - onset density (rhythmic activity)
+    - intensity (loudness)
+    - intensity variance (dynamic range)
 
-    Returns a PaceProfile with a scroll_multiplier for adjusting game speed.
+    Returns PaceProfile with pace_score in [0, 1].
     """
     y, sr = librosa.load(audio_path, sr=None)
     duration = librosa.get_duration(y=y, sr=sr)
 
-    # Get onset envelope and detect onsets
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
     onset_frames = librosa.onset.onset_detect(y=y, sr=sr, onset_envelope=onset_env)
     onset_times = librosa.frames_to_time(onset_frames, sr=sr)
 
-    # Calculate features
-    onset_density = len(onset_times) / duration if duration > 0 else 0
+    onset_density = len(onset_times) / duration if duration > 0 else 0.0
 
-    # Normalize onset envelope for intensity metrics
-    if len(onset_env) > 0:
-        avg_intensity = float(np.mean(onset_env))
-        intensity_variance = float(np.var(onset_env))
-    else:
-        avg_intensity = 0.0
-        intensity_variance = 0.0
+    avg_intensity = float(np.mean(onset_env)) if len(onset_env) > 0 else 0.0
+    intensity_variance = float(np.var(onset_env)) if len(onset_env) > 0 else 0.0
 
-    # Calculate pace score (0.0 = slow, 1.0 = fast)
-    # Normalize each feature to 0-1 range and combine
+    bpm_score = np.clip((bpm - 70) / 150, 0, 1)
+    density_score = np.clip((onset_density - 1.2) / 6.0, 0, 1)
+    intensity_score = np.clip(avg_intensity / 40.0, 0, 1)
+    variance_score = np.clip(intensity_variance / 300.0, 0, 1)
 
-    # BPM contribution (80-200 range mapped to 0-1)
-    bpm_score = np.clip((bpm - 80) / 120, 0, 1)
-
-    # Onset density contribution (1-8 onsets/sec mapped to 0-1)
-    density_score = np.clip((onset_density - 1) / 7, 0, 1)
-
-    # Intensity contribution (normalized by typical range)
-    intensity_score = np.clip(avg_intensity / 50, 0, 1)
-
-    # Variance contribution (high variance = more dynamic = feels faster)
-    variance_score = np.clip(intensity_variance / 500, 0, 1)
-
-    # Weighted combination
     pace_score = float(
-        bpm_score * 0.35 +
-        density_score * 0.35 +
+        bpm_score * 0.25 +
+        density_score * 0.45 +
         intensity_score * 0.15 +
         variance_score * 0.15
     )
 
-    # Calculate scroll multiplier (0.8x to 1.4x range)
-    # Faster songs get faster scroll, slower songs get slower scroll
-    scroll_multiplier = 0.8 + (pace_score * 0.6)
+    scroll_multiplier = 0.75 + (pace_score * 0.75)
 
     return M.PaceProfile(
         bpm=bpm,
@@ -445,106 +424,105 @@ def classify_pace(audio_path: str, bpm: float) -> M.PaceProfile:
         scroll_multiplier=scroll_multiplier
     )
 
+def get_aggro_beat_intensities(beat_times, onset_times, onset_env):
+    intensities = []
+
+    for i in range(len(beat_times) - 1):
+        start_t, end_t = beat_times[i], beat_times[i + 1]
+        mask = (onset_times >= start_t) & (onset_times < end_t)
+
+        if np.any(mask):
+            # 🔥 use MAX instead of mean (captures spikes)
+            val = float(np.max(onset_env[mask]))
+        else:
+            val = 0.0
+
+        intensities.append(val)
+
+    return intensities
 
 def calculate_energy_shifts(
     audio_path: str,
     bpm: float,
     pace_score: float,
-    beats_per_section: int = 16
+    beats_per_section: int = 8
 ) -> list[M.SectionEnergyShift]:
-    """
-    Calculate dynamic scroll speed shifts based on section-to-section energy changes.
 
-    The threshold for triggering a shift is inversely proportional to pace_score:
-    - Slow songs (low pace_score): higher threshold, fewer shifts
-    - Fast songs (high pace_score): lower threshold, more shifts
-
-    Returns a list of SectionEnergyShift for sections that exceed the threshold.
-    """
     y, sr = librosa.load(audio_path, sr=None)
 
-    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, start_bpm=bpm)
+    _, beat_frames = librosa.beat.beat_track(y=y, sr=sr, start_bpm=bpm)
     beat_times = librosa.frames_to_time(beat_frames, sr=sr)
 
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
     onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr)
 
-    beat_intensities = get_beat_intensities(beat_times, onset_times, onset_env)
+    beat_intensities = get_aggro_beat_intensities(beat_times, onset_times, onset_env)
     section_intensities = get_section_intensities(beat_intensities, beats_per_section)
 
     if len(section_intensities) < 2:
         return []
 
-    # Calculate average intensity for normalization
-    avg_intensity = sum(section_intensities) / len(section_intensities)
-    if avg_intensity == 0:
+    avg_intensity = float(np.mean(section_intensities))
+    if avg_intensity <= 1e-6:
         return []
-
-    # Dynamic threshold based on pace_score
-    # Fast songs (pace_score ~1.0): threshold = 0.15 (more sensitive)
-    # Slow songs (pace_score ~0.0): threshold = 0.40 (less sensitive)
-    base_threshold = 0.40 - (pace_score * 0.25)
 
     beat_duration = 60 / bpm
     section_duration = beat_duration * beats_per_section
 
+    base_threshold = 0.18 - (pace_score * 0.06)
+    base_threshold = max(0.08, base_threshold)
+
     shifts: list[M.SectionEnergyShift] = []
-    baseline_intensity = section_intensities[0]
+    last_trigger_idx = -999
+    cooldown = 2
 
     for i in range(1, len(section_intensities)):
         current = section_intensities[i]
         previous = section_intensities[i - 1]
 
-        # Calculate normalized delta from previous section
         delta = (current - previous) / avg_intensity
+        ratio = current / (avg_intensity + 1e-6)
 
-        # Calculate how far above/below baseline we are
-        baseline_delta = (current - baseline_intensity) / avg_intensity
+        # --- three-tier detection ---
+        strong_jump = abs(delta) > base_threshold * 1.4
+        medium_jump = abs(delta) > base_threshold
+        climax = ratio > (1.18 + 0.25 * pace_score)
 
-        # Check if change exceeds threshold
-        if abs(delta) >= base_threshold:
-            # Calculate scroll modifier proportional to energy change
-            # Range: 0.85x (big drop) to 1.25x (big increase)
-            # The modifier scales with how much energy changed
-            if delta > 0:
-                # Energy increase: speed up scroll
-                modifier = 1.0 + min(delta * 0.5, 0.25)
-            else:
-                # Energy decrease: slow down scroll
-                modifier = 1.0 + max(delta * 0.3, -0.15)
+        trigger = strong_jump or climax or (medium_jump and ratio > 1.05)
 
-            start_time = i * section_duration
-            end_time = (i + 1) * section_duration
+        if not trigger:
+            continue
 
-            shifts.append(M.SectionEnergyShift(
-                section_idx=i,
-                start_time=start_time,
-                end_time=end_time,
-                energy_delta=delta,
-                scroll_modifier=modifier
-            ))
+        if i - last_trigger_idx < cooldown:
+            continue
 
-            # Update baseline when we have a significant shift up
-            if delta > base_threshold:
-                baseline_intensity = current
+        magnitude = max(abs(delta), ratio - 1.0)
+        magnitude = magnitude ** (1.4 + 0.8 * pace_score)
+
+        if delta >= 0:
+            modifier = 1.0 + magnitude * (1.2 + 1.0 * pace_score)
         else:
-            # Check if we should maintain elevated speed from previous shift
-            if shifts and baseline_delta > base_threshold * 0.5:
-                # Continue the elevated section
-                prev_shift = shifts[-1]
-                if prev_shift.section_idx == i - 1:
-                    # Extend or create continuation
-                    start_time = i * section_duration
-                    end_time = (i + 1) * section_duration
-                    shifts.append(M.SectionEnergyShift(
-                        section_idx=i,
-                        start_time=start_time,
-                        end_time=end_time,
-                        energy_delta=baseline_delta,
-                        scroll_modifier=prev_shift.scroll_modifier * 0.95  # Slight decay
-                    ))
+            modifier = 1.0 - magnitude * (0.8 + 0.5 * pace_score)
+
+        modifier = float(np.clip(modifier, 0.55, 2.8))
+
+        start_time = i * section_duration
+        end_time = (i + 1) * section_duration
+
+        shifts.append(M.SectionEnergyShift(
+            section_idx=i,
+            start_time=start_time,
+            end_time=end_time,
+            energy_delta=float(delta),
+            scroll_modifier=modifier
+        ))
+
+        last_trigger_idx = i
 
     return shifts
+
+
+
 
 
 # THEN, DO FREQUENCY CHECK ON THE NORMALIZED SB INTENSITIES. maybe split into categories based off wavelength ranges?

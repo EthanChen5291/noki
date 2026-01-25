@@ -44,9 +44,20 @@ def main():
     #visual UI:
     # -- add power notes that cause a shockwave
 
+    
+
+    # use energy trend to get more words (harder sections) with respect to pauses
+    # ensure the beginning silent period works
+    # add some visual during speed up
+    # add a bpm correction for cat (shortcut 'tab' or something)
+    # sometimes zooms through words
+
+    #speedup is nice but kinda cuts the animation (I think there should be a quick acceleration/deaccleration).
+    #moreover it should stay for longer if the intensity doesn't vary that much (unless it drops by a threshold)
+
     tutorial = Level(
         word_bank=wb2,
-        song_path=song_path + song_names[0],
+        song_path=song_path + song_names[2],
         bpm=96
         )
     

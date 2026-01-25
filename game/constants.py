@@ -56,7 +56,7 @@ LEAD_IN_MIN_SECONDS = 2.0  # minimum lead-in time (will round up to nearest meas
 
 # --- engine
 
-SCROLL_SPEED = 400
+SCROLL_SPEED = 350
 HIT_X = 730
 MISSED_COLOR = (255, 0, 0)
 COLOR = (255, 255, 255)

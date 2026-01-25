@@ -108,8 +108,11 @@ class Game:
 
         # --- classify pace and set scroll speed
         self.pace_profile = classify_pace(self.song_path, self.song.bpm)
-        self.base_scroll_speed = C.SCROLL_SPEED * self.pace_profile.scroll_multiplier
-        self.scroll_speed = self.base_scroll_speed
+        self.base_scroll_speed = C.SCROLL_SPEED
+
+        self.pace_bias = 0.85 + self.pace_profile.pace_score * 1.3
+
+        self.scroll_speed = self.base_scroll_speed * self.pace_bias 
 
         # --- calculate dynamic energy shifts
         self.energy_shifts = calculate_energy_shifts(
@@ -136,7 +139,7 @@ class Game:
     def update_cat_animation(self):
         current_time = time.perf_counter() - self.rhythm.start_time
 
-        # animation loop = 2 beats
+        # animation loop is TWO BEATSw
         loop_beats = 2
         beat_phase = (current_time / self.rhythm.beat_duration) % loop_beats
         normalized = beat_phase / loop_beats
@@ -149,7 +152,6 @@ class Game:
         if not self.drop_event or not self.rhythm.beat_map:
             return -1
 
-        # Account for lead-in offset in beatmap timestamps
         drop_time = self.drop_event.timestamp + self.rhythm.lead_in
         best_idx = -1
         best_diff = float('inf')
@@ -201,11 +203,10 @@ class Game:
         self.shockwaves = surviving
 
     def update_dynamic_scroll_speed(self, current_time: float):
-        """Adjust scroll speed based on current section's energy shift"""
-        # Account for lead-in offset
         song_time = current_time
 
-        # Find if we're in an energy shift section
+        speed = self.base_scroll_speed * self.pace_bias
+
         active_shift = None
         for shift in self.energy_shifts:
             if shift.start_time <= song_time < shift.end_time:
@@ -213,14 +214,35 @@ class Game:
                 break
 
         if active_shift:
-            # Apply the shift's modifier to base scroll speed
-            target_speed = self.base_scroll_speed * active_shift.scroll_modifier
-        else:
-            target_speed = self.base_scroll_speed
+            speed *= active_shift.scroll_modifier
 
-        # Smooth transition to target speed (lerp)
-        lerp_factor = 0.08  # Adjust for faster/slower transitions
-        self.scroll_speed += (target_speed - self.scroll_speed) * lerp_factor
+        self.scroll_speed = speed
+
+
+
+    def draw_speed_arrow(self, x: int, y: int, speed_up: bool):
+        """Draw a speed change arrow (like Geometry Dash portals)"""
+        arrow_color = (0, 180, 255) if speed_up else (100, 180, 255)
+        arrow_height = 80
+        arrow_width = 32
+
+        if speed_up:
+            # right arrow
+            points = [
+                (x - arrow_width // 2, y - arrow_height // 2),
+                (x + arrow_width // 2, y),
+                (x - arrow_width // 2, y + arrow_height // 2),
+            ]
+        else:
+            # left arrow
+            points = [
+                (x + arrow_width // 2, y - arrow_height // 2),
+                (x - arrow_width // 2, y),
+                (x + arrow_width // 2, y + arrow_height // 2),
+            ]
+
+        pygame.draw.polygon(self.screen, arrow_color, points)
+        #pygame.draw.polygon(self.screen, (255, 255, 255), points, 2) idk if i should keep outline
 
     def render_shockwave(self, wave: M.Shockwave):
         """Render a single shockwave ring with realistic gray coloring"""
@@ -597,8 +619,21 @@ class Game:
                                    (x, timeline_y - 50), (x, timeline_y + 50), 4)
                 else:
                     # beat lines
-                    pygame.draw.line(self.screen, (100, 100, 100), 
+                    pygame.draw.line(self.screen, (100, 100, 100),
                                    (x, timeline_y - 30), (x, timeline_y + 30), 2)
+
+        # --- draw speed change arrows at energy shift boundaries
+        for shift in self.energy_shifts:
+
+            shift_time = shift.start_time #+ self.rhythm.lead_in
+            time_until = shift_time - current_time
+
+            if -0.5 < time_until < 5.0:
+                arrow_x = hit_marker_x + time_until * self.scroll_speed
+
+                if timeline_start_x <= arrow_x <= timeline_end_x:
+                    speed_up = shift.energy_delta > 0
+                    self.draw_speed_arrow(int(arrow_x), timeline_y - 70, speed_up)
 
     def show_message(self, txt: str, secs: float):
         self.message = txt

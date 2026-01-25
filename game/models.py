@@ -27,17 +27,17 @@ class IntensityProfile:
 @dataclass(frozen=True)
 class DropEvent:
     """Represents a detected drop/climax moment in the song"""
-    timestamp: float  # When the drop occurs (beat 1 of climax section)
-    intensity: float  # Raw intensity of the drop section
-    intensity_ratio: float  # How much louder than average
-    section_idx: int  # Which section this drop is in
+    timestamp: float  # when the drop occurs (beat 1 of climax section)
+    intensity: float  # raw intensity of the drop section
+    intensity_ratio: float  # how much louder than average
+    section_idx: int  # which section this drop is in
 
 
 @dataclass(frozen=True)
 class PaceProfile:
     """Classification of song pace/energy for scroll speed adjustment"""
     bpm: float
-    onset_density: float  # Onsets per second
+    onset_density: float  # onsets per second
     avg_intensity: float
     intensity_variance: float
     pace_score: float  # 0.0 to 1.0 (slow to fast)
@@ -48,10 +48,10 @@ class PaceProfile:
 class SectionEnergyShift:
     """Represents a section with modified scroll speed due to energy change"""
     section_idx: int
-    start_time: float  # When this section starts
-    end_time: float  # When this section ends
-    energy_delta: float  # Change from previous section (positive = more intense)
-    scroll_modifier: float  # Multiplier to apply on top of base scroll speed
+    start_time: float  # when this section starts
+    end_time: float  # when this section ends
+    energy_delta: float  # change from previous section (positive = more intense)
+    scroll_modifier: float  # multiplier to apply on top of base scroll speed
 
 
 @dataclass
@@ -61,16 +61,16 @@ class Shockwave:
     center_y: float
     radius: float
     max_radius: float
-    alpha: int  # 0-255 transparency
+    alpha: int  # 0 - 255 transparency
     thickness: int
-    speed: float  # Pixels per second expansion rate
+    speed: float  # pixels per second expansion rate
 
     def update(self, dt: float) -> bool:
         """Update shockwave, returns False if should be removed"""
         self.radius += self.speed * dt
-        # Fade out as it expands
+        # fade out as it expands
         progress = self.radius / self.max_radius
-        self.alpha = int(255 * (1 - progress) * 0.6)  # Max 60% opacity
+        self.alpha = int(255 * (1 - progress) * 0.6)  # max 60% opacity
         self.thickness = max(1, int(4 * (1 - progress)))
         return self.radius < self.max_radius
 
@@ -81,7 +81,7 @@ class RhythmSlot:
     """A potential character placement slot based on audio analysis"""
     time: float
     intensity: float
-    priority: int  # 1=weak, 2=medium, 3=strong
+    priority: int  # 1 = weak, 2 = medium, 3 = strong
     is_filled: bool
     beat_position: float
     
