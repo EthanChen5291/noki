@@ -313,8 +313,7 @@ def group_info_by_section(sb_info: list[M.SubBeatInfo], subdivisions: int = 4, b
         
         current_section.append(sb)
         current_idx += 1
-        sections_sb_info.append(current_section)
-
+    
     if current_section:
         sections_sb_info.append(current_section)
 

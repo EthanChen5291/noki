@@ -197,7 +197,6 @@ class Game:
         self.screen.blit(acc_text, (1300, 800))
         self.screen.blit(rank_text, (1300, 850))
 
-
     # --- RENDER TIMELINE 
 
     def render_timeline(self):

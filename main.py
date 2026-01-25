@@ -27,7 +27,7 @@ def main():
 
     tutorial = Level(
         word_bank=wb1,
-        song_path=song_paths[0],
+        song_path=song_paths[2],
         bpm=96
         )
     

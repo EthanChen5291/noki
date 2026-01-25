@@ -52,26 +52,24 @@ class RhythmManager:
             return
         
         elapsed = time.perf_counter() - self.start_time
-        current_event = self.beat_map[self.char_event_idx]
         
-        # Auto-advance past rest events
-        while self.char_event_idx < len(self.beat_map) and current_event.is_rest:
-            if elapsed >= current_event.timestamp:
-                self.char_event_idx += 1
-                if self.char_event_idx < len(self.beat_map):
-                    current_event = self.beat_map[self.char_event_idx]
+        while self.char_event_idx < len(self.beat_map):
+            current_event = self.beat_map[self.char_event_idx]
+            
+            if current_event.is_rest:
+                if elapsed >= current_event.timestamp:
+                    self.char_event_idx += 1
+                    continue
                 else:
                     break
-        
-        # Check if current event should be auto-missed
-        if self.char_event_idx < len(self.beat_map):
-            current_event = self.beat_map[self.char_event_idx]
+            
             miss_threshold = current_event.timestamp + self.timing_windows['ok']
             
-            if elapsed > miss_threshold and not current_event.is_rest:
-                # Auto-miss: player was too late
+            if elapsed > miss_threshold:
                 self._register_miss()
                 self.char_event_idx += 1
+            else:
+                break
     
     def check_input(self, typed_char: str) -> dict:
         """
