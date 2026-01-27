@@ -438,14 +438,18 @@ def get_sb_info(song: M.Song, subdivisions: int) -> list[M.SubBeatInfo]:
     Each sub-beat is 1/subdivisions of a beat."""
     y, sr = librosa.load(song.file_path, sr=None)
 
-    _, beat_frames = librosa.beat.beat_track(
-        y=y,
-        sr=sr,
-        start_bpm=song.bpm if song.bpm else 120,
-        tightness=200
-    )
-
-    beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+    # Use song's pre-aligned beat times if available for consistency
+    # This ensures slot times match dual-side section time ranges
+    if song.beat_times and len(song.beat_times) > 1:
+        beat_times = np.array(song.beat_times)
+    else:
+        _, beat_frames = librosa.beat.beat_track(
+            y=y,
+            sr=sr,
+            start_bpm=song.bpm if song.bpm else 120,
+            tightness=200
+        )
+        beat_times = librosa.frames_to_time(beat_frames, sr=sr)
 
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
     onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr)
@@ -676,6 +680,116 @@ def calculate_energy_shifts(
 
     return shifts
 
+
+def detect_dual_side_sections(
+    audio_path: str,
+    bpm: float,
+    pace_score: float,
+    aligned_beat_times: list[float],
+    beats_per_section: int = 8
+) -> list[M.DualSideSection]:
+    """
+    Detect sustained high-intensity sections where dual-side mode (plane mode) should activate.
+    These are the most intense multi-section periods in the song.
+    Returns sections lasting at least 2 sections where intensity is consistently high.
+    """
+    if len(aligned_beat_times) < beats_per_section * 4:
+        return []
+
+    y, sr = librosa.load(audio_path, sr=None)
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+    onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr)
+
+    beat_times = np.array(aligned_beat_times)
+    beat_intensities = get_aggro_beat_intensities(beat_times, onset_times, onset_env)
+
+    num_sections = len(beat_intensities) // beats_per_section
+    section_intensities: list[float] = []
+    section_times: list[tuple[float, float]] = []
+
+    for sec_idx in range(num_sections):
+        beat_start = sec_idx * beats_per_section
+        beat_end = beat_start + beats_per_section
+
+        sec_beats = beat_intensities[beat_start:beat_end]
+        section_intensities.append(float(np.mean(sec_beats)) if sec_beats else 0.0)
+
+        start_t = float(beat_times[beat_start]) if beat_start < len(beat_times) else 0.0
+        end_t = float(beat_times[min(beat_end, len(beat_times) - 1)])
+        section_times.append((start_t, end_t))
+
+    if len(section_intensities) < 4:
+        return []
+
+    avg_intensity = float(np.mean(section_intensities))
+    max_intensity = float(np.max(section_intensities))
+
+    if avg_intensity <= 1e-6:
+        return []
+
+    # Threshold for dual-side mode: sections significantly above average
+    # Higher threshold than speed changes - only the most intense parts
+    intensity_threshold = avg_intensity + (max_intensity - avg_intensity) * (0.5 + 0.2 * pace_score)
+
+    dual_sections: list[M.DualSideSection] = []
+
+    # Find consecutive sections above threshold
+    in_intense = False
+    intense_start_idx = -1
+
+    min_duration_sections = 2  # Minimum 2 sections for dual-side mode
+    cooldown_sections = 4  # Wait at least 4 sections before another dual-side period
+    last_end_idx = -cooldown_sections
+
+    for i, intensity in enumerate(section_intensities):
+        above_threshold = intensity >= intensity_threshold
+
+        if not in_intense:
+            if above_threshold and (i - last_end_idx) >= cooldown_sections:
+                in_intense = True
+                intense_start_idx = i
+        else:
+            # End condition: intensity drops below 85% of threshold
+            if intensity < intensity_threshold * 0.85:
+                # Check if we have enough consecutive sections
+                duration = i - intense_start_idx
+                if duration >= min_duration_sections:
+                    start_time = section_times[intense_start_idx][0]
+                    end_time = section_times[i - 1][1]
+
+                    # Calculate average intensity ratio for this period
+                    period_intensities = section_intensities[intense_start_idx:i]
+                    avg_period = float(np.mean(period_intensities))
+                    intensity_ratio = avg_period / (avg_intensity + 1e-6)
+
+                    dual_sections.append(M.DualSideSection(
+                        start_time=start_time,
+                        end_time=end_time,
+                        intensity_ratio=intensity_ratio
+                    ))
+
+                    last_end_idx = i
+
+                in_intense = False
+
+    # Handle case where song ends during intense section
+    if in_intense and intense_start_idx >= 0:
+        duration = len(section_intensities) - intense_start_idx
+        if duration >= min_duration_sections:
+            start_time = section_times[intense_start_idx][0]
+            end_time = section_times[-1][1]
+
+            period_intensities = section_intensities[intense_start_idx:]
+            avg_period = float(np.mean(period_intensities))
+            intensity_ratio = avg_period / (avg_intensity + 1e-6)
+
+            dual_sections.append(M.DualSideSection(
+                start_time=start_time,
+                end_time=end_time,
+                intensity_ratio=intensity_ratio
+            ))
+
+    return dual_sections
 
 
 

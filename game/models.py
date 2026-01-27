@@ -54,6 +54,14 @@ class SectionEnergyShift:
     scroll_modifier: float  # multiplier to apply on top of base scroll speed
 
 
+@dataclass(frozen=True)
+class DualSideSection:
+    """Represents a section where notes come from both sides (plane mode)"""
+    start_time: float
+    end_time: float
+    intensity_ratio: float  # how intense this section is relative to average
+
+
 @dataclass
 class Shockwave:
     """A single expanding shockwave circle"""
@@ -108,7 +116,7 @@ class CharEvent:
     section: int
     is_rest: bool = False
     hit: bool = False
-    #section_idx: int
+    from_left: bool = False  # True = note comes from left side (dual-side mode)
 
 # --- engine 
 

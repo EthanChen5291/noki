@@ -1,5 +1,4 @@
 import time
-import math
 from . import constants as C
 from . import models as M
 from typing import Optional
@@ -30,7 +29,6 @@ def calculate_lead_in(
 class RhythmManager:
     """
     Manages rhythm gameplay timing, scoring, and feedback.
-    Enhanced for modern rhythm game features.
     """
     def __init__(self, beat_map: list[M.CharEvent], bpm: float, lead_in: float = 0.0):
         self.bpm = bpm

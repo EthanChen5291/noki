@@ -12,7 +12,8 @@ def main():
                   "Reel.mp3",
                   "Megalovania.mp3",
                   "Malo Kart.mp3",
-                  "StoryOfMoon.wav"]
+                  "StoryOfMoon.wav",
+                  "hustle.mp3"]
     
     # SHOULD JUST DO SONG_PATH then have a function that converts it into a song data type
     wb1 = ["cat", "test", "me", "rhythm", "beat", "fish", "moon", "derp", "noki", "yeah"]
@@ -55,10 +56,29 @@ def main():
     #speedup is nice but kinda cuts the animation (I think there should be a quick acceleration/deaccleration).
     #moreover it should stay for longer if the intensity doesn't vary that much (unless it drops by a threshold)
 
+    # mode that allows dots to come from both sides
+
+    # add mode that allows dots to come from both sides (similar to plane mode      
+#   in geometry dash in applicability) for a couple sections (similar in          
+#   applicability to the speed up and slow down in that it happens during one     
+#   of the most intense sections and lasts multiple sections). When this          
+#   happens, to let the user know, shift the cat towards the middle (quick        
+#   accerleration then slow down momentum style) and make the notes coming        
+#   have corresponding dots above them 
+
+
+    # add ending seconds
+    # how to do visuals? notes hiding behind markers
+    # dual section only at beginning
+    # cps controller (integrate)
+
+    # add level interface + file upload interface for level creation
+
+    # files
+
     tutorial = Level(
         word_bank=wb2,
-        song_path=song_path + song_names[4],
-        bpm=96
+        song_path=song_path + song_names[10],
         )
     
     game = Game(level=tutorial)

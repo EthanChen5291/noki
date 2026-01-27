@@ -163,7 +163,8 @@ def assign_words_to_slots(
     measures: list[list[M.RhythmSlot]],
     word_bank: list[M.Word],
     beat_duration: float,
-    intensity_profile: Optional[M.IntensityProfile] = None
+    intensity_profile: Optional[M.IntensityProfile] = None,
+    dual_side_sections: Optional[list[M.DualSideSection]] = None
 ) -> list[M.CharEvent]:
     """
     Assign characters to rhythm slots measure-by-measure.
@@ -175,6 +176,10 @@ def assign_words_to_slots(
     last_word_end_time = -float('inf')
     last_word_text = ""
 
+    # Grace period at start of dual sections: 1 measure (4 beats) of rest
+    grace_beats = 4
+    grace_duration = grace_beats * beat_duration
+
     for measure_idx, measure_slots in enumerate(measures):
         if not measure_slots or not remaining_words:
             continue
@@ -183,6 +188,25 @@ def assign_words_to_slots(
 
         first_slot_time = measure_slots[0].time
         if first_slot_time < last_word_end_time + C.MIN_WORD_GAP:
+            continue
+
+        # Skip entire measures that fall within grace periods of a dual section
+        # (both at start AND at end of dual sections)
+        in_grace_period = False
+        if dual_side_sections:
+            for dual_sec in dual_side_sections:
+                # Start grace period: first 4 beats of dual section
+                start_grace_end = dual_sec.start_time + grace_duration
+                if dual_sec.start_time <= first_slot_time < start_grace_end:
+                    in_grace_period = True
+                    break
+                # End grace period: 4 beats after dual section ends
+                end_grace_end = dual_sec.end_time + grace_duration
+                if dual_sec.end_time <= first_slot_time < end_grace_end:
+                    in_grace_period = True
+                    break
+
+        if in_grace_period:
             continue
 
         intensity_ratio = 1.0
@@ -227,6 +251,16 @@ def assign_words_to_slots(
         for char_idx in range(chars_to_place):
             char = word.text[char_idx]
             slot = selected_slots[char_idx]
+
+            # Check if this note is in a dual-side section
+            from_left = False
+            if dual_side_sections:
+                for dual_sec in dual_side_sections:
+                    if dual_sec.start_time <= slot.time < dual_sec.end_time:
+                        # Alternate sides based on character index within word
+                        from_left = (char_idx % 2 == 1)
+                        break
+
             events.append(M.CharEvent(
                 char=char,
                 timestamp=slot.time,
@@ -234,7 +268,8 @@ def assign_words_to_slots(
                 char_idx=char_idx,
                 beat_position=slot.beat_position,
                 section=section_idx,
-                is_rest=False
+                is_rest=False,
+                from_left=from_left
             ))
             slot.is_filled = True
 
@@ -391,22 +426,26 @@ def adjust_slots_by_intensity(
 
 # ==================== MAIN GENERATION ====================
 
-def generate_beatmap(word_list: list[str], song: M.Song) -> list[M.CharEvent]:
+def generate_beatmap(
+    word_list: list[str],
+    song: M.Song,
+    dual_side_sections: Optional[list[M.DualSideSection]] = None
+) -> list[M.CharEvent]:
     """Generate an engaging, playable beatmap using slot-based rhythm generation."""
     beat_duration = 60 / song.bpm
-    
+
     sb_info = get_sb_info(song, subdivisions=4)
     slots = build_rhythm_slots(sb_info, song)
     slots = filter_slots_for_playability(slots, min_spacing=0.12)
-    
+
     measures = group_slots_by_measure(slots, beat_duration)
-    
+
     intensity_profile = None
     if song.file_path:
         path = C._to_abs_path(song.file_path)
         if path:
             intensity_profile = analyze_song_intensity(path, song.bpm)
-    
+
     # adjust slots based on intensity
     measures = adjust_slots_by_intensity(measures, intensity_profile, beat_duration)
 
@@ -417,8 +456,8 @@ def generate_beatmap(word_list: list[str], song: M.Song) -> list[M.CharEvent]:
             measures[i] = sorted(measure_sorted[:C.MAX_SLOTS_PER_MEASURE], key=lambda s: s.time)
 
     word_bank = get_words_with_rhythm_info(word_list, beat_duration)
-    events = assign_words_to_slots(measures, word_bank, beat_duration, intensity_profile)
-    events = add_rhythm_variations(events, song)
+    events = assign_words_to_slots(measures, word_bank, beat_duration, intensity_profile, dual_side_sections)
+    #events = add_rhythm_variations(events, song)
 
     events = deduplicate_events(events, beat_duration, min_spacing=0.1)
 
