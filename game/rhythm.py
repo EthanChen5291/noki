@@ -30,10 +30,11 @@ class RhythmManager:
     """
     Manages rhythm gameplay timing, scoring, and feedback.
     """
-    def __init__(self, beat_map: list[M.CharEvent], bpm: float, lead_in: float = 0.0):
+    def __init__(self, beat_map: list[M.CharEvent], bpm: float, lead_in: float = 0.0, timing_scale: float = 1.0):
         self.bpm = bpm
         self.beat_duration = 60 / bpm
         self.lead_in = lead_in
+        self.timing_scale = timing_scale
 
         self.beat_map = [
             M.CharEvent(
@@ -73,9 +74,9 @@ class RhythmManager:
         base_window = min(0.15, self.beat_duration * 0.4)
         
         self.timing_windows = {
-            'perfect': base_window * 0.5,
-            'good': base_window,
-            'ok': base_window * 1.5,
+            'perfect': base_window * 0.5 * self.timing_scale,
+            'good': base_window * self.timing_scale,
+            'ok': base_window * 1.5 * self.timing_scale,
         }
     
     def update(self):

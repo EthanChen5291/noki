@@ -128,7 +128,8 @@ class Song:
         self.beat_times = beat_times or []
 
 class Level:
-    def __init__(self, word_bank: list[str], song_path: str, bpm: Optional[int] = None):
+    def __init__(self, word_bank: list[str], song_path: str, bpm: Optional[int] = None, difficulty: str = "classic"):
         self.word_bank = word_bank
         self.song_path = song_path
         self.bpm = bpm
+        self.difficulty = difficulty

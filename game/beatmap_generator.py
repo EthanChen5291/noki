@@ -83,20 +83,20 @@ def group_slots_by_measure(slots: list[M.RhythmSlot], beat_duration: float) -> l
         if 0 <= measure_idx < num_measures:
             measures[measure_idx].append(slot)
     
-    # measures = [m for m in measures if m]  # uncomment to remove empty measures
+    # measures = [m for m in measures if m]  # UNCOMMENT TO REMOVE EMPTY
     
     return measures
 
 
 # ==================== SMART WORD ASSIGNMENT ====================
 
-def get_words_with_rhythm_info(words: list[str], beat_duration: float) -> list[M.Word]:
+def get_words_with_rhythm_info(words: list[str], beat_duration: float, target_cps: float = C.TARGET_CPS) -> list[M.Word]:
     """Enhanced word creation with better rhythm properties"""
     return [
         M.Word(
             text=word,
             rest_type=None,
-            ideal_beats=(ideal := len(word) / C.TARGET_CPS / beat_duration),
+            ideal_beats=(ideal := len(word) / target_cps / beat_duration),
             snapped_beats=(snapped := snap_to_grid(ideal, C.SNAP_GRID)),
             snapped_cps=len(word) / (snapped * beat_duration)
         )
@@ -108,7 +108,9 @@ def select_word_for_measure(
     available_slots: int,
     remaining_words: list[M.Word],
     word_bank: list[M.Word],
-    intensity_ratio: float = 1.0
+    intensity_ratio: float = 1.0,
+    target_cps: float = C.TARGET_CPS,
+    cps_tolerance: float = C.CPS_TOLERANCE,
 ) -> Optional[M.Word]:
     """
     Select the best word for a measure based on:
@@ -131,7 +133,6 @@ def select_word_for_measure(
     else:
         target_chars = max(2, int(available_slots * 0.75))
     
-    # Find words matching target length with tolerance, but MUST fit in available slots
     tolerance = 2 if abs(intensity_ratio - 1.0) > 0.3 else 1
     candidates = [
         w for w in remaining_words
@@ -142,11 +143,10 @@ def select_word_for_measure(
         candidates = [w for w in remaining_words if len(w.text) <= available_slots]
 
     if not candidates:
-        # Last resort: pick shortest word even if longer than slots (will be truncated)
         candidates = [min(remaining_words, key=lambda w: len(w.text))]
     
-    target_cps = C.TARGET_CPS * intensity_ratio
-    viable = [w for w in candidates if abs(w.snapped_cps - target_cps) <= C.CPS_TOLERANCE * 1.5]
+    effective_cps = target_cps * intensity_ratio
+    viable = [w for w in candidates if abs(w.snapped_cps - effective_cps) <= cps_tolerance * 1.5]
     
     return random.choice(viable if viable else candidates)
 
@@ -164,7 +164,9 @@ def assign_words_to_slots(
     word_bank: list[M.Word],
     beat_duration: float,
     intensity_profile: Optional[M.IntensityProfile] = None,
-    dual_side_sections: Optional[list[M.DualSideSection]] = None
+    dual_side_sections: Optional[list[M.DualSideSection]] = None,
+    target_cps: float = C.TARGET_CPS,
+    cps_tolerance: float = C.CPS_TOLERANCE,
 ) -> list[M.CharEvent]:
     """
     Assign characters to rhythm slots measure-by-measure.
@@ -190,17 +192,13 @@ def assign_words_to_slots(
         if first_slot_time < last_word_end_time + C.MIN_WORD_GAP:
             continue
 
-        # Skip entire measures that fall within grace periods of a dual section
-        # (both at start AND at end of dual sections)
         in_grace_period = False
         if dual_side_sections:
             for dual_sec in dual_side_sections:
-                # Start grace period: first 4 beats of dual section
                 start_grace_end = dual_sec.start_time + grace_duration
                 if dual_sec.start_time <= first_slot_time < start_grace_end:
                     in_grace_period = True
                     break
-                # End grace period: 4 beats after dual section ends
                 end_grace_end = dual_sec.end_time + grace_duration
                 if dual_sec.end_time <= first_slot_time < end_grace_end:
                     in_grace_period = True
@@ -229,7 +227,9 @@ def assign_words_to_slots(
             len(measure_slots),
             candidates,
             word_bank,
-            intensity_ratio
+            intensity_ratio,
+            target_cps=target_cps,
+            cps_tolerance=cps_tolerance,
         )
 
         if not word or not word.text:
@@ -252,12 +252,10 @@ def assign_words_to_slots(
             char = word.text[char_idx]
             slot = selected_slots[char_idx]
 
-            # Check if this note is in a dual-side section
             from_left = False
             if dual_side_sections:
                 for dual_sec in dual_side_sections:
                     if dual_sec.start_time <= slot.time < dual_sec.end_time:
-                        # Alternate sides based on character index within word
                         from_left = (char_idx % 2 == 1)
                         break
 
@@ -314,13 +312,12 @@ def add_rhythm_variations(events: list[M.CharEvent], song: M.Song) -> list[M.Cha
     enhanced: list[M.CharEvent] = []
     
     for section in sections:
-        # 20% chance for BURST which is slightly more intense
         if random.random() < 0.2:
             for e in section:
                 if not e.is_rest:
                     e_copy = M.CharEvent(
                         char=e.char,
-                        timestamp=e.timestamp * 0.95,  # 5% faster
+                        timestamp=e.timestamp * 0.95,
                         word_text=e.word_text,
                         char_idx=e.char_idx,
                         beat_position=e.beat_position,
@@ -363,9 +360,10 @@ def group_events_by_section(events: list[M.CharEvent]) -> list[list[M.CharEvent]
     return sections
 
 def adjust_slots_by_intensity(
-    measures: list[list[M.RhythmSlot]], 
+    measures: list[list[M.RhythmSlot]],
     intensity_profile: Optional[M.IntensityProfile],
-    beat_duration: float
+    beat_duration: float,
+    target_cps: float = C.TARGET_CPS,
 ) -> list[list[M.RhythmSlot]]:
     """
     Adjust slot density based on song intensity.
@@ -395,20 +393,20 @@ def adjust_slots_by_intensity(
         # ADJUST SLOT DENSITY BASED ON INTENSITY
         if intensity_ratio > 1.3:  # very loud
             keep_slots = [s for s in measure_slots if s.priority >= 2]
-            target_cps = C.TARGET_CPS * 1.2  # 20% faster
+            effective_cps = target_cps * 1.2  # 20% faster
         elif intensity_ratio > 1.1:  # moderately loud
             keep_slots = [s for s in measure_slots if s.priority >= 3]
-            target_cps = C.TARGET_CPS * 1.1  # 10% faster
+            effective_cps = target_cps * 1.1  # 10% faster
         elif intensity_ratio < 0.7:  # quiet section
             keep_slots = sorted(measure_slots, key=lambda s: s.priority, reverse=True)
             keep_slots = keep_slots[:max(2, len(measure_slots) // 2)]
-            target_cps = C.TARGET_CPS * 0.8  # 20% slower
+            effective_cps = target_cps * 0.8  # 20% slower
         elif intensity_ratio < 0.9:  # slightly quiet
             keep_slots = [s for s in measure_slots if s.priority >= 3]
-            target_cps = C.TARGET_CPS * 0.9  # 10% slower
+            effective_cps = target_cps * 0.9  # 10% slower
         else:
             keep_slots = measure_slots
-            target_cps = C.TARGET_CPS
+            effective_cps = target_cps
         
         if len(keep_slots) > 1:
             keep_slots.sort(key=lambda s: s.time)
@@ -429,14 +427,16 @@ def adjust_slots_by_intensity(
 def generate_beatmap(
     word_list: list[str],
     song: M.Song,
-    dual_side_sections: Optional[list[M.DualSideSection]] = None
+    dual_side_sections: Optional[list[M.DualSideSection]] = None,
+    difficulty: str = "classic",
 ) -> list[M.CharEvent]:
     """Generate an engaging, playable beatmap using slot-based rhythm generation."""
+    profile = C.DIFFICULTY_PROFILES[difficulty]
     beat_duration = 60 / song.bpm
 
     sb_info = get_sb_info(song, subdivisions=4)
     slots = build_rhythm_slots(sb_info, song)
-    slots = filter_slots_for_playability(slots, min_spacing=0.12)
+    slots = filter_slots_for_playability(slots, min_spacing=profile.min_char_spacing)
 
     measures = group_slots_by_measure(slots, beat_duration)
 
@@ -447,7 +447,7 @@ def generate_beatmap(
             intensity_profile = analyze_song_intensity(path, song.bpm)
 
     # adjust slots based on intensity
-    measures = adjust_slots_by_intensity(measures, intensity_profile, beat_duration)
+    measures = adjust_slots_by_intensity(measures, intensity_profile, beat_duration, target_cps=profile.target_cps)
 
     for i, measure in enumerate(measures):
         if len(measure) > C.MAX_SLOTS_PER_MEASURE:
@@ -455,11 +455,42 @@ def generate_beatmap(
             measure_sorted = sorted(measure, key=lambda s: (-s.priority, s.time))
             measures[i] = sorted(measure_sorted[:C.MAX_SLOTS_PER_MEASURE], key=lambda s: s.time)
 
-    word_bank = get_words_with_rhythm_info(word_list, beat_duration)
-    events = assign_words_to_slots(measures, word_bank, beat_duration, intensity_profile, dual_side_sections)
+    word_bank = get_words_with_rhythm_info(word_list, beat_duration, target_cps=profile.target_cps)
+    events = assign_words_to_slots(
+        measures, word_bank, beat_duration, intensity_profile, dual_side_sections,
+        target_cps=profile.target_cps, cps_tolerance=profile.cps_tolerance,
+    )
     #events = add_rhythm_variations(events, song)
 
     events = deduplicate_events(events, beat_duration, min_spacing=0.1)
+
+    # --- Song alignment: ensure beatmap doesn't extend past song duration
+    # and pad with a blank measure of rest at the end so the last word
+    # has time to scroll off before the level ends
+    song_end = song.duration
+    measure_duration = beat_duration * C.BEATS_PER_MEASURE
+
+    # Remove any events that would fall past the song duration (minus one measure buffer)
+    if events:
+        cutoff = song_end - measure_duration
+        events = [e for e in events if e.timestamp <= cutoff]
+
+    # Add a trailing rest event ~1 measure after the last note so the level
+    # doesn't end abruptly when the last note is hit
+    if events:
+        last_event_time = max(e.timestamp for e in events)
+        pad_time = last_event_time + measure_duration
+        # Only pad if it doesn't exceed song duration
+        if pad_time <= song_end + measure_duration:
+            events.append(M.CharEvent(
+                char="",
+                timestamp=pad_time,
+                word_text="",
+                char_idx=-1,
+                beat_position=0.0,
+                section=0,
+                is_rest=True
+            ))
 
     return events
 

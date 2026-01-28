@@ -243,10 +243,10 @@ def detect_drops(
 
     # Dynamic threshold based on song's intensity range
     # Threshold is relative to the song's own dynamics
-    drop_threshold = avg_intensity + (intensity_range * 0.4)
+    drop_threshold = avg_intensity + (intensity_range * 0.25)
 
     drops: list[M.DropEvent] = []
-    cooldown_sections = 3  # Minimum sections between drops
+    cooldown_sections = 2  # Minimum sections between drops
     last_drop_idx = -cooldown_sections
 
     for i in range(1, len(section_intensities)):
@@ -258,7 +258,7 @@ def detect_drops(
         jump_ratio = jump / (avg_intensity + 1e-6)
 
         # Trigger if: big jump AND current exceeds threshold AND not in cooldown
-        if (jump_ratio > 0.25 and
+        if (jump_ratio > 0.15 and
             current > drop_threshold and
             i - last_drop_idx >= cooldown_sections):
 
@@ -599,7 +599,7 @@ def calculate_energy_shifts(
     if avg_intensity <= 1e-6:
         return []
 
-    base_threshold = 0.10 - (pace_score * 0.04)
+    base_threshold = 0.10 - (pace_score * 0.05)
     base_threshold = max(0.04, base_threshold)
 
     drop_threshold = 0.85
@@ -792,6 +792,141 @@ def detect_dual_side_sections(
     return dual_sections
 
 
+
+
+def get_beat_onset_strengths(
+    audio_path: str,
+    aligned_beat_times: list[float],
+) -> list[float]:
+    """
+    Return normalised (0-1) low-frequency onset strength at each beat time.
+
+    Isolates drums / bass by computing a mel spectrogram and keeping only
+    the bins below ~200 Hz before deriving the onset envelope.  This makes
+    the strength values respond to kick drums, toms, and bass hits rather
+    than melodies or hi-hats.
+    """
+    if len(aligned_beat_times) < 2:
+        return []
+
+    y, sr = librosa.load(audio_path, sr=None)
+
+    # Mel spectrogram — use enough bands to get good low-freq resolution
+    n_mels = 128
+    S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=n_mels)
+
+    # Figure out which mel bins correspond to ≤200 Hz
+    mel_freqs = librosa.mel_frequencies(n_mels=n_mels, fmax=sr / 2)
+    low_cutoff = 200  # Hz — captures kick, toms, bass
+    low_bins = int(np.searchsorted(mel_freqs, low_cutoff))
+    low_bins = max(low_bins, 1)  # at least one bin
+
+    # Zero out everything above the cutoff, then compute onset strength
+    S_low = S.copy()
+    S_low[low_bins:, :] = 0
+
+    onset_env = librosa.onset.onset_strength(S=librosa.power_to_db(S_low), sr=sr)
+    onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr)
+
+    strengths: list[float] = []
+    window = 0.04
+    for bt in aligned_beat_times:
+        mask = (onset_times >= bt - window) & (onset_times <= bt + window)
+        if np.any(mask):
+            strengths.append(float(np.max(onset_env[mask])))
+        else:
+            strengths.append(0.0)
+
+    max_s = max(strengths) if strengths else 1.0
+    if max_s <= 1e-6:
+        return [0.0] * len(strengths)
+
+    return [s / max_s for s in strengths]
+
+
+def detect_shake_sections(
+    audio_path: str,
+    bpm: float,
+    aligned_beat_times: list[float],
+    beats_per_section: int = 8,
+    threshold_factor: float = 0.3,
+) -> list[tuple[float, float, float]]:
+    """
+    Detect sustained high-intensity sections that should trigger screen shake.
+
+    Uses the same onset envelope as the rest of the analysis pipeline.
+    Groups beats into sections and finds sections whose intensity exceeds
+    ``avg + (max - avg) * threshold_factor``.  Consecutive qualifying sections
+    are merged into ranges.
+
+    Returns list of (start_time, end_time, normalised_strength 0-1).
+    Returns empty list if fewer than 2 sections qualify (not intense enough).
+    """
+    if len(aligned_beat_times) < beats_per_section * 2:
+        return []
+
+    y, sr = librosa.load(audio_path, sr=None)
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+    onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr)
+
+    beat_times = np.array(aligned_beat_times)
+    beat_intensities = get_aggro_beat_intensities(beat_times, onset_times, onset_env)
+
+    num_sections = len(beat_intensities) // beats_per_section
+    if num_sections < 2:
+        return []
+
+    section_intensities: list[float] = []
+    section_times: list[tuple[float, float]] = []
+    for sec_idx in range(num_sections):
+        bs = sec_idx * beats_per_section
+        be = bs + beats_per_section
+        sec_beats = beat_intensities[bs:be]
+        section_intensities.append(float(np.mean(sec_beats)) if sec_beats else 0.0)
+        start_t = float(beat_times[bs]) if bs < len(beat_times) else 0.0
+        end_t = float(beat_times[min(be, len(beat_times) - 1)])
+        section_times.append((start_t, end_t))
+
+    avg_intensity = float(np.mean(section_intensities))
+    max_intensity = float(np.max(section_intensities))
+    if avg_intensity <= 1e-6 or max_intensity - avg_intensity <= 1e-6:
+        return []
+
+    threshold = avg_intensity + (max_intensity - avg_intensity) * threshold_factor
+
+    # Find qualifying sections and merge consecutive ones into ranges
+    ranges: list[tuple[float, float, float]] = []
+    in_range = False
+    range_start = 0.0
+    range_strength = 0.0
+    range_count = 0
+
+    for i, intensity in enumerate(section_intensities):
+        if intensity >= threshold:
+            if not in_range:
+                in_range = True
+                range_start = section_times[i][0]
+                range_strength = 0.0
+                range_count = 0
+            range_strength += intensity
+            range_count += 1
+        else:
+            if in_range:
+                avg_str = range_strength / range_count
+                norm = min(1.0, avg_str / max_intensity)
+                ranges.append((range_start, section_times[i - 1][1], norm))
+                in_range = False
+
+    if in_range:
+        avg_str = range_strength / range_count
+        norm = min(1.0, avg_str / max_intensity)
+        ranges.append((range_start, section_times[-1][1], norm))
+
+    # Gate: need at least 2 qualifying sections total
+    if sum(1 for i in section_intensities if i >= threshold) < 2:
+        return []
+
+    return ranges
 
 
 # THEN, DO FREQUENCY CHECK ON THE NORMALIZED SB INTENSITIES. maybe split into categories based off wavelength ranges?

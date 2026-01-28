@@ -19,19 +19,31 @@ from analysis.audio_analysis import (
     detect_drops,
     classify_pace,
     calculate_energy_shifts,
-    detect_dual_side_sections
+    detect_dual_side_sections,
 )
 from . import models as M
+from .menu import PauseScreen, Button
+from dataclasses import dataclass
 
 pygame.init()
 
+@dataclass
+class BounceEvent:
+    time: float          # song-time of the obstacle
+    section_start: float
+    section_end: float
+
 class Game:
-    def __init__(self, level) -> None:
-        info = pygame.display.Info()
-        screen_width, screen_height = info.current_w, info.current_h
-        self.screen = pygame.display.set_mode((screen_width, screen_height), pygame.RESIZABLE)
-        pygame.display.set_caption("Rhythm Typing Game")
-        self.clock = pygame.time.Clock()
+    def __init__(self, level, screen=None, clock=None) -> None:
+        if screen is not None:
+            self.screen = screen
+        else:
+            info = pygame.display.Info()
+            screen_width, screen_height = info.current_w, info.current_h
+            self.screen = pygame.display.set_mode((screen_width, screen_height), pygame.RESIZABLE)
+            pygame.display.set_caption("Rhythm Typing Game")
+        self.clock = clock if clock is not None else pygame.time.Clock()
+        screen_width, screen_height = self.screen.get_size()
         self.running = False
         self.last_char_idx = -1
         self.used_current_char = False
@@ -102,13 +114,19 @@ class Game:
             self.song.beat_times
         )
 
+        self.difficulty_profile = C.DIFFICULTY_PROFILES.get(level.difficulty, C.DIFFICULTY_PROFILES["classic"])
+
         beatmap = generate_beatmap(
             word_list=level.word_bank,
             song=self.song,
-            dual_side_sections=self.dual_side_sections
+            dual_side_sections=self.dual_side_sections,
+            difficulty=level.difficulty,
         )
         lead_in = calculate_lead_in(self.song.beat_times)
-        self.rhythm = RhythmManager(beatmap, self.song.bpm, lead_in=lead_in)
+        self.rhythm = RhythmManager(
+            beatmap, self.song.bpm, lead_in=lead_in,
+            timing_scale=self.difficulty_profile.timing_scale,
+        )
 
         self.input = Input()
 
@@ -123,7 +141,7 @@ class Game:
         self.drop_note_indices = self._find_drop_note_indices()
 
         # --- classify pace and set scroll speed (pace_profile already computed above)
-        self.base_scroll_speed = C.SCROLL_SPEED
+        self.base_scroll_speed = C.SCROLL_SPEED * self.difficulty_profile.scroll_scale
 
         self.pace_bias = 0.85 + self.pace_profile.pace_score * 1.3
 
@@ -136,6 +154,15 @@ class Game:
             self.pace_profile.pace_score,
             self.song.beat_times  # pass aligned beat times
         )
+
+        # --- bounce mode
+        self.bounce_events: list[BounceEvent] = []
+        self.bounce_active: bool = False
+        self.bounce_reversed: bool = False
+        self._next_bounce_idx: int = 0
+        self.hit_marker_bounce_offset: float = 0.0
+        self.hit_marker_bounce_velocity: float = 0.0
+        self._build_bounce_events()
 
         # --- cat position for dual-side mode animation
         self.cat_base_x = 150  # normal left position
@@ -169,20 +196,84 @@ class Game:
         # --- track missed notes for shockwave effect in dual mode
         self.missed_note_shockwaves: set[int] = set()  # indices of notes that triggered miss shockwave
 
+        # --- pause state
+        self.paused = False
+        self.pause_screen: PauseScreen | None = None
+        self.pause_time_accumulated = 0.0  # total time spent paused
+        self._pause_start = 0.0
+        pause_font = pygame.font.Font(None, 36)
+        self.pause_button = Button(
+            (screen_width - 100, 20, 80, 40),
+            "II",
+            pause_font,
+            base_color=(120, 120, 120),
+            hover_color=(255, 255, 255),
+        )
+
         # --- play music
         pygame.mixer.init()
         pygame.mixer.music.load(self.song_path)
         pygame.mixer.music.play()
 
-    def run(self) -> None:
+    def run(self):
+        """Run the game loop. Returns 'menu' if player exits to menu, None otherwise."""
         self.running = True
+        self._exit_to_menu = False
         while self.running:
             dt = self.clock.tick(60) / 1000
-            self.update(dt)
+            if self.paused:
+                self._update_paused(dt)
+            else:
+                self.update(dt)
             pygame.display.flip()
 
-        pygame.quit()
-        sys.exit()
+        pygame.mixer.music.stop()
+        return "menu" if self._exit_to_menu else None
+
+    def _enter_pause(self):
+        self.paused = True
+        self._pause_start = time.perf_counter()
+        self._pause_snapshot = self.screen.copy()
+        self.pause_screen = PauseScreen(self.screen)
+        pygame.mixer.music.pause()
+
+    def _exit_pause(self):
+        pause_elapsed = time.perf_counter() - self._pause_start
+        self.pause_time_accumulated += pause_elapsed
+        # shift rhythm start time forward so game time is unaffected
+        self.rhythm.start_time += pause_elapsed
+        self.paused = False
+        self.pause_screen = None
+        pygame.mixer.music.unpause()
+
+    def _update_paused(self, dt):
+        # blit the frozen snapshot captured when pause was entered
+        self.screen.blit(self._pause_snapshot, (0, 0))
+
+        # draw pause overlay
+        mouse_pos = pygame.mouse.get_pos()
+        mouse_clicked = False
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+                return
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                self._exit_pause()
+                return
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                mouse_clicked = True
+
+        if self.pause_screen is not None:
+            action = self.pause_screen.update(mouse_pos, mouse_clicked)
+            self.pause_screen.draw(time.time())
+        else:
+            action = None
+
+        if action == "resume":
+            self._exit_pause()
+        elif action == "menu":
+            self._exit_to_menu = True
+            self.running = False
 
     def update_cat_animation(self):
         current_time = time.perf_counter() - self.rhythm.start_time
@@ -244,7 +335,7 @@ class Game:
         return drop_to_note
 
     def trigger_shockwave(self):
-        """Spawn multiple expanding shockwave rings"""
+        """Spawn multiple expanding shockwave rings and boost screen shake"""
         center_x = self.screen.get_width() // 2
         center_y = self.screen.get_height() // 2
 
@@ -324,6 +415,76 @@ class Game:
 
         self.scroll_speed += (target_speed - self.scroll_speed) * lerp_factor
 
+    def _build_bounce_events(self):
+        """Build bounce events from energy shifts with positive energy_delta."""
+        dual_ranges = [(ds.start_time, ds.end_time) for ds in self.dual_side_sections]
+
+        for shift in self.energy_shifts:
+            if shift.energy_delta <= C.BOUNCE_THRESHOLD:
+                continue
+
+            overlaps = False
+            for ds_start, ds_end in dual_ranges:
+                if shift.start_time < ds_end and shift.end_time > ds_start:
+                    overlaps = True
+                    break
+            if overlaps:
+                continue
+
+            measure_beats = []
+            for i, bt in enumerate(self.song.beat_times):
+                if bt < shift.start_time:
+                    continue
+                if bt >= shift.end_time:
+                    break
+                if i % 4 == 0:
+                    measure_beats.append(bt)
+
+            for bt in measure_beats:
+                self.bounce_events.append(BounceEvent(
+                    time=bt,
+                    section_start=shift.start_time,
+                    section_end=shift.end_time,
+                ))
+
+        self.bounce_events.sort(key=lambda e: e.time)
+
+    def update_bounce_state(self, current_time: float, dt: float):
+        """Update bounce mode: toggle direction when crossing bounce obstacles."""
+        song_time = current_time - self.rhythm.lead_in
+
+        was_active = self.bounce_active
+        self.bounce_active = False
+
+        if not self.dual_side_active:
+            for evt in self.bounce_events:
+                if evt.section_start <= song_time < evt.section_end:
+                    self.bounce_active = True
+                    break
+
+        while (self._next_bounce_idx < len(self.bounce_events)
+               and self.bounce_events[self._next_bounce_idx].time <= song_time):
+            if not self.dual_side_active:
+                self.bounce_reversed = not self.bounce_reversed
+            self._next_bounce_idx += 1
+
+        if was_active and not self.bounce_active:
+            self.bounce_reversed = False
+
+        if self.bounce_reversed:
+            target = -30.0
+        elif self.bounce_active:
+            target = 15.0
+        else:
+            target = 0.0
+
+        spring_strength = 10.0
+        damping = 6.0
+        dist = target - self.hit_marker_bounce_offset
+        accel = spring_strength * dist - damping * self.hit_marker_bounce_velocity
+        self.hit_marker_bounce_velocity += accel * dt
+        self.hit_marker_bounce_offset += self.hit_marker_bounce_velocity * dt
+
     def update_cat_position(self, current_time: float, dt: float):
         """
         Update cat position with momentum-style animation for dual-side mode.
@@ -331,11 +492,8 @@ class Game:
         """
         song_time = current_time - self.rhythm.lead_in
 
-        # Delay before visual transition back to normal (1 beat)
         visual_exit_delay = self.beat_duration * 1
 
-        # Check if we're in a dual-side section
-        # (beatmap has a built-in rest at the start of each dual section for grace period)
         self.dual_side_active = False
         self.dual_side_visuals_active = False
 
@@ -344,24 +502,18 @@ class Game:
                 self.dual_side_active = True
                 self.dual_side_visuals_active = True
                 break
-            # Keep visuals active for a short delay after section ends
             elif dual_sec.end_time <= song_time < dual_sec.end_time + visual_exit_delay:
                 self.dual_side_visuals_active = True
                 break
 
-        # Determine target position (based on visuals, not note directions)
         if self.dual_side_visuals_active:
             target_x = self.cat_center_x
         else:
             target_x = self.cat_base_x
 
-        # Momentum-style animation: use spring physics for natural movement
-        # Quick acceleration (high spring constant) then slow deceleration (damping)
         distance = target_x - self.cat_current_x
 
-        # Spring constants - different for moving to center vs returning to base
         if self.dual_side_visuals_active:
-            # Moving to center: quick and snappy
             if abs(distance) > 5:
                 spring_strength = 8.0
                 damping = 4.0
@@ -369,7 +521,6 @@ class Game:
                 spring_strength = 5.0
                 damping = 6.0
         else:
-            # Returning to base: smoother, gentler
             if abs(distance) > 5:
                 spring_strength = 5.0
                 damping = 5.0
@@ -377,12 +528,10 @@ class Game:
                 spring_strength = 4.0
                 damping = 7.0
 
-        # Spring physics: acceleration = spring_force - damping * velocity
         acceleration = spring_strength * distance - damping * self.cat_velocity
         self.cat_velocity += acceleration * dt
         self.cat_current_x += self.cat_velocity * dt
 
-        # Clamp to prevent overshooting too far
         if self.dual_side_visuals_active:
             self.cat_current_x = max(self.cat_base_x, min(self.cat_current_x, self.cat_center_x + 50))
         else:
@@ -393,7 +542,6 @@ class Game:
         Animate timeline expansion/contraction for dual-side mode.
         Uses spring physics for momentum feel.
         """
-        # Determine target positions (based on visuals, which start early)
         if self.dual_side_visuals_active:
             target_start = self.timeline_dual_start
             target_end = self.timeline_dual_end
@@ -402,12 +550,10 @@ class Game:
         else:
             target_start = self.timeline_normal_start
             target_end = self.timeline_normal_end
-            # Apply grace adjustment for normal mode
             grace = (C.GRACE * self.scroll_speed)
             target_hit = self.hit_marker_normal_x - grace/6
             target_word_y = self.word_normal_y
 
-        # On first frame or if uninitialized, snap to target (no animation)
         if not hasattr(self, '_timeline_initialized'):
             self.timeline_current_start = target_start
             self.timeline_current_end = target_end
@@ -416,35 +562,28 @@ class Game:
             self._timeline_initialized = True
             return
 
-        # Spring constants - different for expanding vs contracting
         if self.dual_side_visuals_active:
-            # Expanding to dual mode: quick and snappy
             spring_strength = 12.0
             damping = 5.0
         else:
-            # Contracting back to normal: smoother, gentler
             spring_strength = 6.0
             damping = 7.0
 
-        # Animate timeline start
         dist_start = target_start - self.timeline_current_start
         accel_start = spring_strength * dist_start - damping * self.timeline_start_velocity
         self.timeline_start_velocity += accel_start * dt
         self.timeline_current_start += self.timeline_start_velocity * dt
 
-        # Animate timeline end
         dist_end = target_end - self.timeline_current_end
         accel_end = spring_strength * dist_end - damping * self.timeline_end_velocity
         self.timeline_end_velocity += accel_end * dt
         self.timeline_current_end += self.timeline_end_velocity * dt
 
-        # Animate hit marker
         dist_hit = target_hit - self.hit_marker_current_x
         accel_hit = spring_strength * dist_hit - damping * self.hit_marker_velocity
         self.hit_marker_velocity += accel_hit * dt
         self.hit_marker_current_x += self.hit_marker_velocity * dt
 
-        # Animate word y-position
         dist_word_y = target_word_y - self.word_current_y
         accel_word_y = spring_strength * dist_word_y - damping * self.word_y_velocity
         self.word_y_velocity += accel_word_y * dt
@@ -455,15 +594,13 @@ class Game:
         arrow_height = 60
         arrow_width = 12
 
-        # Colors for dual-side indicator
-        left_color = (100, 200, 255)  # Light blue
-        right_color = (255, 200, 100)  # Orange
+        left_color = (100, 200, 255)
+        right_color = (255, 200, 100)
 
         top_y = timeline_y - arrow_height // 2
         bottom_y = timeline_y + arrow_height // 2
         center_y = timeline_y
 
-        # Left arrow (pointing right) - offset to the left of center
         left_x = x - 15
         left_points = [
             (left_x + arrow_width, center_y),
@@ -473,7 +610,6 @@ class Game:
         pygame.draw.polygon(self.screen, left_color, left_points)
         pygame.draw.polygon(self.screen, (255, 255, 255), left_points, 2)
 
-        # Right arrow (pointing left) - offset to the right of center
         right_x = x + 15
         right_points = [
             (right_x - arrow_width, center_y),
@@ -492,7 +628,7 @@ class Game:
             arrow_color = (200, 150, 100)
             glow_color = (50, 100, 180, 80)
 
-        arrow_height = timeline_height  # Span full measure line
+        arrow_height = timeline_height
         arrow_width = 24
 
         top_y = timeline_y - arrow_height // 2
@@ -552,6 +688,7 @@ class Game:
         current_time = time.perf_counter() - self.rhythm.start_time
 
         self.update_dynamic_scroll_speed(current_time)
+        self.update_bounce_state(current_time, dt)
         self.update_cat_position(current_time, dt)
         self.update_timeline_animation(dt)
 
@@ -563,10 +700,22 @@ class Game:
             self.screen.blit(cat_scaled, (int(self.cat_current_x), 550))
         
         events = pygame.event.get()
+        mouse_pos = pygame.mouse.get_pos()
+        mouse_clicked = False
         for event in events:
             if event.type == pygame.QUIT:
                 self.running = False
-        
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                self._enter_pause()
+                return
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                mouse_clicked = True
+
+        self.pause_button.check_hover(mouse_pos)
+        if self.pause_button.check_click(mouse_pos, mouse_clicked):
+            self._enter_pause()
+            return
+
         self.input.update(events=events)
         
         self.rhythm.update()
@@ -637,7 +786,11 @@ class Game:
         self.screen.blit(combo_text, (1300, 750))
         self.screen.blit(acc_text, (1300, 800))
         self.screen.blit(rank_text, (1300, 850))
-        
+
+        # pause button
+        self.pause_button.draw(self.screen, time.time())
+
+
     def get_next_word(self) -> str | None:
         """Get the next word that will be typed after current word completes"""
         if not self.rhythm.beat_map:
@@ -659,12 +812,13 @@ class Game:
         is_current: bool,
         current_char_idx: int,
         fading_out: bool = False,
-        adjacent_word_width: int = 0
+        adjacent_word_width: int = 0,
+        y_offset: float = 0
     ):
         """Draw a word with 3D carousel rotation animation"""
         if not word:
             return
-        
+
         base_char_spacing = 60
 
         if position == 'right':
@@ -673,13 +827,13 @@ class Game:
             char_spacing = base_char_spacing * 0.7
         else:
             char_spacing = base_char_spacing
-        
+
         total_width = len(word) * char_spacing
-        
+
         radius = 350  # radius of rotation circle
         center_offset = base_char_spacing / 2
         center_x = self.screen.get_width() // 2 + center_offset  # center of screen
-        center_y = 180  # vertical position (like in 3d space)
+        center_y = 180 + y_offset  # vertical position (like in 3d space)
         
         base_spacing = 100
         
@@ -790,6 +944,18 @@ class Game:
             char_rect = char_surface.get_rect(center=(char_x + char_spacing // 2, center_y))
             self.screen.blit(char_surface, char_rect)
 
+    def draw_bounce_obstacle(self, x: int, timeline_y: int):
+        """Draw a diamond-shaped bounce obstacle."""
+        size = 12
+        points = [
+            (x, timeline_y - size),
+            (x + size, timeline_y),
+            (x, timeline_y + size),
+            (x - size, timeline_y), 
+        ]
+        pygame.draw.polygon(self.screen, (255, 80, 200), points)
+        pygame.draw.polygon(self.screen, (255, 255, 255), points, 2)
+
     # --- RENDER TIMELINE
 
     def render_timeline(self):
@@ -815,43 +981,41 @@ class Game:
         
         ease_progress = 1 - (1 - transition_progress) ** 3
 
-        # During dual-side mode, show large background word instead of carousel
-        if self.dual_side_visuals_active:
-            # Draw large faded background word
-            if current_word:
-                self.draw_background_word(current_word)
-        else:
-            # Normal word carousel display
-            if current_word:
-                self.draw_word_animated(
-                    current_word,
-                    position='center',
-                    transition_progress=ease_progress,
-                    is_current=True,
-                    current_char_idx=self.rhythm.char_event_idx,
-                    adjacent_word_width=next_word_width
-                )
+        word_y_offset = self.word_current_y - self.word_normal_y
 
-            if next_word:
-                self.draw_word_animated(
-                    next_word,
-                    position='right',
-                    transition_progress=ease_progress,
-                    is_current=False,
-                    current_char_idx=-1,
-                    adjacent_word_width=current_word_width
-                )
+        if current_word:
+            self.draw_word_animated(
+                current_word,
+                position='center',
+                transition_progress=ease_progress,
+                is_current=True,
+                current_char_idx=self.rhythm.char_event_idx,
+                adjacent_word_width=next_word_width,
+                y_offset=word_y_offset
+            )
 
-            if hasattr(self, '_previous_word') and self._previous_word is not None and transition_progress < 1.0:
-                self.draw_word_animated(
-                    self._previous_word,
-                    position='left',
-                    transition_progress=ease_progress,
-                    is_current=False,
-                    current_char_idx=-1,
-                    fading_out=True,
-                    adjacent_word_width=current_word_width
-                )
+        if next_word:
+            self.draw_word_animated(
+                next_word,
+                position='right',
+                transition_progress=ease_progress,
+                is_current=False,
+                current_char_idx=-1,
+                adjacent_word_width=current_word_width,
+                y_offset=word_y_offset
+            )
+
+        if hasattr(self, '_previous_word') and self._previous_word is not None and transition_progress < 1.0:
+            self.draw_word_animated(
+                self._previous_word,
+                position='left',
+                transition_progress=ease_progress,
+                is_current=False,
+                current_char_idx=-1,
+                fading_out=True,
+                adjacent_word_width=current_word_width,
+                y_offset=word_y_offset
+            )
 
         if transition_progress >= 1.0:
             self._previous_word = current_word
@@ -860,7 +1024,7 @@ class Game:
         timeline_y = 380
         timeline_start_x = int(self.timeline_current_start)
         timeline_end_x = int(self.timeline_current_end)
-        hit_marker_x = self.hit_marker_current_x
+        hit_marker_x = self.hit_marker_current_x + self.hit_marker_bounce_offset
 
         pygame.draw.line(self.screen, (255, 255, 255),
                         (timeline_start_x, timeline_y),
@@ -875,112 +1039,44 @@ class Game:
                         (int(hit_marker_x), timeline_y - C.HIT_MARKER_Y_OFFSET),
                         (int(hit_marker_x), timeline_y + C.HIT_MARKER_Y_OFFSET), int(C.HIT_MARKER_WIDTH/2))
 
-        # --- draw beat markers/notes
-
-        for note_idx, event in enumerate(self.rhythm.beat_map):
-            time_until_hit = event.timestamp - current_time
-
-            # --- calculate position
-
-            if -0.75 < time_until_hit < 5.0:
-                # Determine if note comes from left at render time
-                # (avoids timing mismatch between beatmap generation and runtime)
-                note_from_left = False
-                if self.dual_side_active and event.char_idx >= 0:
-                    # Alternate sides based on character index within word
-                    note_from_left = (event.char_idx % 2 == 1)
-
-                # Notes from the left side move right (from left edge toward hit marker)
-                # Notes from the right side move left (from right edge toward hit marker)
-                if note_from_left:
-                    # Left-side notes: start from left edge, move toward hit marker
-                    marker_x = hit_marker_x - (time_until_hit * self.scroll_speed)
-                else:
-                    # Right-side notes: normal behavior (start from right, move toward hit marker)
-                    marker_x = hit_marker_x + (time_until_hit * self.scroll_speed)
-
-                if timeline_start_x <= marker_x <= timeline_end_x:
-                    if event.char != "" and not event.hit:
-                        is_missed = time_until_hit < 0
-                        radius = 10
-
-                        # In dual mode, handle missed notes specially
-                        if self.dual_side_active and is_missed:
-                            # Trigger miss shockwave if not already triggered
-                            if note_idx not in self.missed_note_shockwaves:
-                                self.trigger_miss_shockwave(int(marker_x), timeline_y)
-                                self.missed_note_shockwaves.add(note_idx)
-                            # Don't render the missed note - it disappears
-                            continue
-
-                        if is_missed:
-                            color = C.MISSED_COLOR
-                        else:
-                            color = C.COLOR
-
-                        # Draw the main note circle
-                        pygame.draw.circle(
-                            self.screen,
-                            color,
-                            (int(marker_x), timeline_y),
-                            radius
-                        )
-
-                        # During dual-side mode, draw the character above each note
-                        if self.dual_side_active:
-                            # Draw character above note
-                            char_font = pygame.font.Font(None, 36)
-                            char_surface = char_font.render(event.char, True, (255, 255, 255))
-                            char_rect = char_surface.get_rect(center=(int(marker_x), timeline_y - 35))
-                            self.screen.blit(char_surface, char_rect)
-
-                            # Draw small direction indicator below char
-                            indicator_y = timeline_y - 18
-                            indicator_radius = 3
-
-                            if note_from_left:
-                                indicator_color = (100, 200, 255)  # Light blue for left
-                            else:
-                                indicator_color = (255, 200, 100)  # Orange for right
-
-                            pygame.draw.circle(
-                                self.screen,
-                                indicator_color,
-                                (int(marker_x), indicator_y),
-                                indicator_radius
-                            )
-        
-        # --- beat grid lines (using actual beat times from librosa)
+        # --- beat grid lines (using beat times from librosa)
         beat_times = self.song.beat_times
         lead_in = self.rhythm.lead_in
 
+        fade_range = self.word_dual_y - self.word_normal_y
+        if fade_range > 0:
+            fade_progress = (self.word_current_y - self.word_normal_y) / fade_range
+            fade_progress = max(0.0, min(1.0, fade_progress))  # clamp 0-1
+        else:
+            fade_progress = 0.0
+
+        measure_brightness = int(255 * (1 - fade_progress * 0.85))
+        beat_brightness = int(100 * (1 - fade_progress * 0.75))
+        measure_line_color = (measure_brightness, measure_brightness, measure_brightness)
+        beat_line_color = (beat_brightness, beat_brightness, beat_brightness)
+
         for i, beat_time in enumerate(beat_times):
-            # Offset by lead_in to match beatmap timestamps
             t = beat_time + lead_in
             time_until = t - current_time
             x = hit_marker_x + time_until * self.scroll_speed
 
             if timeline_start_x <= x <= timeline_end_x:
                 if i % 4 == 0:
-                    # measure lines
-                    pygame.draw.line(self.screen, (255, 255, 255),
+                    pygame.draw.line(self.screen, measure_line_color,
                                    (x, timeline_y - 50), (x, timeline_y + 50), 4)
                 else:
-                    # beat lines
-                    pygame.draw.line(self.screen, (100, 100, 100),
+                    pygame.draw.line(self.screen, beat_line_color,
                                    (x, timeline_y - 30), (x, timeline_y + 30), 2)
 
         # --- draw dual-side mode indicators
         if self.dual_side_visuals_active:
-            # Draw arrows on both sides of the timeline indicating dual direction
             arrow_size = 15
             arrow_y = timeline_y
 
-            # Left arrow (pointing right) near timeline start
             left_arrow_x = timeline_start_x + 30
             pygame.draw.polygon(
                 self.screen,
-                (100, 200, 255),  # Light blue
+                (100, 200, 255),
                 [
                     (left_arrow_x, arrow_y),
                     (left_arrow_x - arrow_size, arrow_y - arrow_size // 2),
@@ -988,11 +1084,10 @@ class Game:
                 ]
             )
 
-            # Right arrow (pointing left) near timeline end
             right_arrow_x = timeline_end_x - 30
             pygame.draw.polygon(
                 self.screen,
-                (255, 200, 100),  # Orange
+                (255, 200, 100),
                 [
                     (right_arrow_x, arrow_y),
                     (right_arrow_x + arrow_size, arrow_y - arrow_size // 2),
@@ -1009,24 +1104,110 @@ class Game:
                 marker_x = hit_marker_x + time_until * self.scroll_speed
 
                 if timeline_start_x <= marker_x <= timeline_end_x:
-                    # Draw dual-side indicator (two arrows pointing at each other)
                     self.draw_dual_side_marker(int(marker_x), timeline_y)
 
-        # --- draw speed change arrows at energy shift boundaries
-        timeline_height = 100  # Matches measure line height (±50 from center)
-        lead_in = self.rhythm.lead_in
+        # --- draw speed change arrows at energy shift boundaries (render BEFORE notes)
+        timeline_height = 100
 
-        for shift in self.energy_shifts:
-            # Add lead_in to shift time to align with beatmap timeline
+        for i, shift in enumerate(self.energy_shifts):
             shift_time = shift.start_time + lead_in
             time_until = shift_time - current_time
 
             if -0.5 < time_until < 5.0:
-                arrow_x = hit_marker_x + time_until * self.scroll_speed
+                if self.dual_side_active:
+                    arrow_from_left = (i % 2 == 1)
+                    if arrow_from_left:
+                        arrow_x = hit_marker_x - (time_until * self.scroll_speed)
+                    else:
+                        arrow_x = hit_marker_x + (time_until * self.scroll_speed)
+                else:
+                    arrow_x = hit_marker_x + time_until * self.scroll_speed
 
                 if timeline_start_x <= arrow_x <= timeline_end_x:
                     speed_up = shift.energy_delta > 0
                     self.draw_speed_arrow(int(arrow_x), timeline_y, timeline_height, speed_up)
+
+        # --- draw bounce obstacles
+        for evt in self.bounce_events:
+            evt_time = evt.time + lead_in
+            time_until = evt_time - current_time
+            if -0.5 < time_until < 5.0:
+                obs_x = hit_marker_x + time_until * self.scroll_speed
+                if timeline_start_x <= obs_x <= timeline_end_x:
+                    self.draw_bounce_obstacle(int(obs_x), timeline_y)
+
+        # --- draw beat markers/notes (render AFTER arrows so notes appear on top)
+
+        for note_idx, event in enumerate(self.rhythm.beat_map):
+            time_until_hit = event.timestamp - current_time
+
+            # --- calculate position
+
+            if -0.75 < time_until_hit < 5.0:
+                note_from_left = False
+                if self.dual_side_active and event.char_idx >= 0:
+                    note_from_left = (event.char_idx % 2 == 1)
+
+                if self.bounce_active and not self.dual_side_active:
+                    note_from_left = self.bounce_reversed
+
+                if note_from_left:
+                    marker_x = hit_marker_x - (time_until_hit * self.scroll_speed)
+                else:
+                    marker_x = hit_marker_x + (time_until_hit * self.scroll_speed)
+
+                if timeline_start_x <= marker_x <= timeline_end_x:
+                    if event.char != "" and not event.hit:
+                        is_missed = time_until_hit < 0
+                        radius = 14
+
+                        if self.dual_side_active and is_missed:
+                            if note_idx not in self.missed_note_shockwaves:
+                                self.trigger_miss_shockwave(int(marker_x), timeline_y)
+                                self.missed_note_shockwaves.add(note_idx)
+                            continue
+
+                        if is_missed:
+                            color = C.MISSED_COLOR
+                        else:
+                            color = C.COLOR
+
+                        # Draw the main note circle
+                        pygame.draw.circle(
+                            self.screen,
+                            color,
+                            (int(marker_x), timeline_y),
+                            radius
+                        )
+
+        # --- draw progress bar on the left side of the timeline
+        progress_bar_x = timeline_start_x - 30
+        progress_bar_height = 200
+        progress_bar_width = 8
+        progress_bar_top = timeline_y - progress_bar_height // 2
+        progress_bar_bottom = timeline_y + progress_bar_height // 2
+
+        total_notes = len(self.rhythm.beat_map)
+        if total_notes > 0:
+            level_progress = min(1.0, self.rhythm.char_event_idx / total_notes)
+        else:
+            level_progress = 0.0
+
+        pygame.draw.rect(
+            self.screen,
+            (40, 40, 40),
+            (progress_bar_x - progress_bar_width // 2, progress_bar_top, progress_bar_width, progress_bar_height),
+            border_radius=4
+        )
+
+        filled_height = int(progress_bar_height * level_progress)
+        if filled_height > 0:
+            pygame.draw.rect(
+                self.screen,
+                (100, 200, 255),
+                (progress_bar_x - progress_bar_width // 2, progress_bar_bottom - filled_height, progress_bar_width, filled_height),
+                border_radius=4
+            )
 
     def show_message(self, txt: str, secs: float):
         self.message = txt

@@ -1,5 +1,6 @@
 import os
 from typing import Optional
+from dataclasses import dataclass
 
 # --- project root
 
@@ -66,3 +67,35 @@ HIT_MARKER_Y_OFFSET = -70
 HIT_MARKER_X_OFFSET = -40
 HIT_MARKER_LENGTH = 200
 HIT_MARKER_WIDTH = 20
+
+BOUNCE_THRESHOLD = 0.4
+
+# --- difficulty profiles
+
+@dataclass(frozen=True)
+class DifficultyProfile:
+    target_cps: float
+    min_cps: float
+    max_cps: float
+    cps_tolerance: float
+    min_char_spacing: float
+    timing_scale: float
+    scroll_scale: float
+
+DIFFICULTY_PROFILES = {
+    "journey": DifficultyProfile(
+        target_cps=2.5, min_cps=2.0, max_cps=3.5,
+        cps_tolerance=0.7, min_char_spacing=0.20,
+        timing_scale=1.4, scroll_scale=0.8,
+    ),
+    "classic": DifficultyProfile(
+        target_cps=3.5, min_cps=3.0, max_cps=4.5,
+        cps_tolerance=0.5, min_char_spacing=0.15,
+        timing_scale=1.0, scroll_scale=1.0,
+    ),
+    "master": DifficultyProfile(
+        target_cps=5.0, min_cps=4.0, max_cps=6.5,
+        cps_tolerance=0.4, min_char_spacing=0.10,
+        timing_scale=0.7, scroll_scale=1.25,
+    ),
+}

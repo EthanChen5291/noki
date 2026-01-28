@@ -1,93 +1,71 @@
+import pygame
 from game.engine import Game
-from game.models import Level, Song
+from game.models import Level
+from game.menu import MenuManager
+
+SONG_PATH = "assets/audios/"
+SONG_NAMES = [
+    "BurgeraX - Scorpion.mp3",
+    "Toby Fox - THE WORLD REVOLVING.mp3",
+    "Toby Fox - Finale.mp3",
+    "miley.mp3",
+    "ICARIUS.mp3",
+    "Fluffing A Duck.mp3",
+    "Reel.mp3",
+    "Megalovania.mp3",
+    "Malo Kart.mp3",
+    "StoryOfMoon.wav",
+    "hustle.mp3",
+]
+
+WORD_BANK_1 = ["cat", "test", "me", "rhythm", "beat", "fish", "moon", "derp", "noki", "yeah"]
+WORD_BANK_2 = ["cat", "here", "me", "chosen", "beat", "hope", "soul", "true", "love", "stay"]
+
 
 def main():
-    song_path = "assets/audios/"
-    song_names = ["BurgeraX - Scorpion.mp3", 
-                  "Toby Fox - THE WORLD REVOLVING.mp3", 
-                  "Toby Fox - Finale.mp3", 
-                  "miley.mp3",
-                  "ICARIUS.mp3",
-                  "Fluffing A Duck.mp3",
-                  "Reel.mp3",
-                  "Megalovania.mp3",
-                  "Malo Kart.mp3",
-                  "StoryOfMoon.wav",
-                  "hustle.mp3"]
-    
-    # SHOULD JUST DO SONG_PATH then have a function that converts it into a song data type
-    wb1 = ["cat", "test", "me", "rhythm", "beat", "fish", "moon", "derp", "noki", "yeah"]
-    wb2 = ["cat", "here", "me", "chosen", "beat", "hope", "soul", "true", "love", "stay"]
+    pygame.init()
+    info = pygame.display.Info()
+    screen = pygame.display.set_mode((info.current_w, info.current_h), pygame.RESIZABLE)
+    pygame.display.set_caption("Key Dash")
+    clock = pygame.time.Clock()
 
-    #last meow too slow
-    #storyofmoon too fast
-    #finale too slow
+    while True:
+        menu = MenuManager(screen, clock, SONG_NAMES)
+        result = menu.run()
 
-    # 2. regulate scroll speed based off bpm
+        if result is None:
+            break
 
-    # for melody detection:
-    # divide melody by sections (different sections follow different frequency melodies): 
-    # see if noticeable peaks found in each section, then go off those beats
+        selected, difficulty = result
 
-    # add a bpm correction button
-
-    # sometimes gets stuck on same word for multiple word durations (the next word switches but current word is stuck) whenever I mess up a few times
-    # want to regulate scroll speed based off 
-    # is there a way to read mood in a song and then maybe decrease the min distance between notes to make it more "chill" if it's a chill song?
-    #sometimes no pauses between words (clumping)
-    
-    # make the word switch immediately if the character is pressed at the end of the word
-    # energy trend
-
-    # energy trend + scroll speed
-
-    # section drift -> due to bpm drift
-    #visual UI:
-    # -- add power notes that cause a shockwave
-
-    
-
-    # use energy trend to get more words (harder sections) with respect to pauses
-    # ensure the beginning silent period works
-    # add some visual during speed up
-    # add a bpm correction for cat (shortcut 'tab' or something)
-    # sometimes zooms through words
-
-    #speedup is nice but kinda cuts the animation (I think there should be a quick acceleration/deaccleration).
-    #moreover it should stay for longer if the intensity doesn't vary that much (unless it drops by a threshold)
-
-    # mode that allows dots to come from both sides
-
-    # add mode that allows dots to come from both sides (similar to plane mode      
-#   in geometry dash in applicability) for a couple sections (similar in          
-#   applicability to the speed up and slow down in that it happens during one     
-#   of the most intense sections and lasts multiple sections). When this          
-#   happens, to let the user know, shift the cat towards the middle (quick        
-#   accerleration then slow down momentum style) and make the notes coming        
-#   have corresponding dots above them 
-
-
-    # add ending seconds
-    # how to do visuals? notes hiding behind markers
-    # dual section only at beginning
-    # cps controller (integrate)
-
-    # add level interface + file upload interface for level creation
-
-    # files
-
-    tutorial = Level(
-        word_bank=wb2,
-        song_path=song_path + song_names[10],
+        level = Level(
+            word_bank=WORD_BANK_2,
+            song_path=SONG_PATH + SONG_NAMES[selected],
+            difficulty=difficulty,
         )
-    
-    game = Game(level=tutorial)
-    game.run()
+
+        # new mode -> reverse on arrows (bounces off of arrows and reverses) almost like going back in the timeline. the measure bars should also kinda accelerae backwards and reverse too
+        # don't move the hitmarker. 
+
+        # when skipping a word (like the word is gonna get cut off in the slot, add two "ghost words", blue circles (like sans's fake hits) where the player shouldn't press but complete the word)
+
+        #save all the beatmaps manually of al the existing levels (so they don't have to load).
+        # on pause screen, make the timeline and notes freeze not disappear
+        # add restart button 
+
+        #on simpler/calmer songs, don't just end words because the melody is slow/sparse, just drag it along for longer (ex. instead of givin "cat", "blob" "yeah" and cutting off half the words, just do "blob" and "cats"). if not many slots available.
+        # for complex/faster/more pacey songs/sections, just add the blue stuff
+
+        # some speed-ups seem to happen 
+
+        #EVENTUALLY
+        # work on file system, saving files to cloud (so the files are there for that user every time, etc)
+
+        game = Game(level=level, screen=screen, clock=clock)
+        game.run()
+
+    pygame.quit()
+
 
 if __name__ == "__main__":
     main()
-
-#starts on beat 1 (really at 0) [0]
-#starts at beat 3 (really at 0) [2]
-
-
