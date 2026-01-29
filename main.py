@@ -64,6 +64,7 @@ def main():
 
         # some speed-ups seem to happen 
 
+        #timeline rotate
         #EVENTUALLY
         # work on file system, saving files to cloud (so the files are there for that user every time, etc)
         #integrate font
