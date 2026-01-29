@@ -44,9 +44,11 @@ def main():
             difficulty=difficulty,
         )
 
-        # new mode -> reverse on arrows (bounces off of arrows and reverses) almost like going back in the timeline. the measure bars should also kinda accelerae backwards and reverse too
-        # don't move the hitmarker. 
+        # ==========================TO DO LIST
 
+        # for the bounce mode mode -> reverse on arrows (bounces off of arrows and reverses) almost like going back in the timeline. the measure bars should also kinda accelerae backwards and reverse too. so not like a reverse, but almost like the hitmarker bounces off (so like momentum in the opposite direction with the measure and beat markers reflecting that)
+        # don't move the hitmarker. 
+        # make style
         # when skipping a word (like the word is gonna get cut off in the slot, add two "ghost words", blue circles (like sans's fake hits) where the player shouldn't press but complete the word)
 
         #save all the beatmaps manually of al the existing levels (so they don't have to load).
@@ -56,10 +58,16 @@ def main():
         #on simpler/calmer songs, don't just end words because the melody is slow/sparse, just drag it along for longer (ex. instead of givin "cat", "blob" "yeah" and cutting off half the words, just do "blob" and "cats"). if not many slots available.
         # for complex/faster/more pacey songs/sections, just add the blue stuff
 
+        # on finish, add some finish thing for 2-3 seconds the open 'finish' menu
+        
+        #make it to where, on wrong note, the next char isn't immediately deactivated.
+
         # some speed-ups seem to happen 
 
         #EVENTUALLY
         # work on file system, saving files to cloud (so the files are there for that user every time, etc)
+        #integrate font
+        # doesn't understand climax sections well
 
         game = Game(level=level, screen=screen, clock=clock)
         game.run()

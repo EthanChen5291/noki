@@ -19,6 +19,7 @@ from analysis.audio_analysis import (
     detect_drops,
     classify_pace,
     calculate_energy_shifts,
+    calculate_scroll_tiers,
     detect_dual_side_sections,
 )
 from . import models as M
@@ -147,12 +148,20 @@ class Game:
 
         self.scroll_speed = self.base_scroll_speed * self.pace_bias
 
+        # --- calculate base scroll speed tiers (intensity-based)
+        self.scroll_tiers = calculate_scroll_tiers(
+            self.song_path,
+            self.song.bpm,
+            self.pace_profile.pace_score,
+            self.song.beat_times,
+        )
+
         # --- calculate dynamic energy shifts (using aligned beat times)
         self.energy_shifts = calculate_energy_shifts(
             self.song_path,
             self.song.bpm,
             self.pace_profile.pace_score,
-            self.song.beat_times  # pass aligned beat times
+            self.song.beat_times,
         )
 
         # --- bounce mode
@@ -160,9 +169,8 @@ class Game:
         self.bounce_active: bool = False
         self.bounce_reversed: bool = False
         self._next_bounce_idx: int = 0
-        self.hit_marker_bounce_offset: float = 0.0
-        self.hit_marker_bounce_velocity: float = 0.0
         self._build_bounce_events()
+        self._apply_bounce_grace_periods()
 
         # --- cat position for dual-side mode animation
         self.cat_base_x = 150  # normal left position
@@ -195,6 +203,11 @@ class Game:
 
         # --- track missed notes for shockwave effect in dual mode
         self.missed_note_shockwaves: set[int] = set()  # indices of notes that triggered miss shockwave
+        self._last_dual_end_time: float = -10.0  # song_time when dual mode last ended
+
+        # --- timeline miss flash (red flash + tiny shake on wrong/miss)
+        self._timeline_flash: float = 0.0  # 1.0 → 0.0 decay
+        self._timeline_shake_offset: float = 0.0
 
         # --- pause state
         self.paused = False
@@ -353,6 +366,31 @@ class Game:
             )
             self.shockwaves.append(shockwave)
 
+    def trigger_hit_ripple(self, x: int, y: int):
+        """Spawn three small, transparent ripple rings from varied offset centers"""
+        import random
+        offsets = [
+            (random.randint(-25, 25), random.randint(-15, 15)),
+            (random.randint(-30, 30), random.randint(-18, 18)),
+            (random.randint(-22, 22), random.randint(-12, 12)),
+        ]
+        configs = [
+            # (start_radius, max_radius, alpha, thickness, speed)
+            (0,  35, 120, 2, 90),
+            (3,  45, 90,  1, 130),
+            (6,  55, 70,  1, 170),
+        ]
+        for (ox, oy), (start_r, max_r, alpha, thick, spd) in zip(offsets, configs):
+            self.shockwaves.append(M.Shockwave(
+                center_x=x + ox,
+                center_y=y + oy,
+                radius=start_r,
+                max_radius=max_r,
+                alpha=alpha,
+                thickness=thick,
+                speed=spd,
+            ))
+
     def trigger_miss_shockwave(self, x: int, y: int):
         """Spawn a small shockwave at a missed note position"""
         shockwave = M.Shockwave(
@@ -384,11 +422,17 @@ class Game:
         self.shockwaves = surviving
 
     def update_dynamic_scroll_speed(self, current_time: float):
-        """Smoothly interpolate scroll speed based on energy shifts"""
-        # Convert to actual song time (subtract lead-in)
+        """Smoothly interpolate scroll speed based on intensity tiers + energy shifts"""
         song_time = current_time - self.rhythm.lead_in
 
-        target_speed = self.base_scroll_speed * self.pace_bias
+        # Start with base speed, then apply intensity tier
+        tier_mult = 1.0
+        for t_start, t_end, mult in self.scroll_tiers:
+            if t_start <= song_time < t_end:
+                tier_mult = mult
+                break
+
+        target_speed = self.base_scroll_speed * self.pace_bias * tier_mult
 
         active_shift = None
         for shift in self.energy_shifts:
@@ -397,16 +441,18 @@ class Game:
                 break
 
         if active_shift:
-            # During dual-side mode, dampen speed-up effects (only apply 30% of the modifier)
             if self.dual_side_active:
-                dampened_modifier = 1.0 + (active_shift.scroll_modifier - 1.0) * 0.3
+                # Less dampening for fast songs so climaxes still hit
+                damp_factor = 0.3 if self.pace_profile.pace_score < 0.5 else 0.7
+                dampened_modifier = 1.0 + (active_shift.scroll_modifier - 1.0) * damp_factor
                 target_speed *= dampened_modifier
             else:
                 target_speed *= active_shift.scroll_modifier
 
-        # During dual-side mode, reduce overall speed to 70%
         if self.dual_side_active:
-            target_speed *= 0.7
+            # Less speed reduction for fast songs
+            dual_slow = 0.7 if self.pace_profile.pace_score < 0.5 else 0.82
+            target_speed *= dual_slow
 
         if target_speed > self.scroll_speed:
             lerp_factor = 0.06
@@ -437,7 +483,7 @@ class Game:
                     continue
                 if bt >= shift.end_time:
                     break
-                if i % 4 == 0:
+                if i % 8 == 0:
                     measure_beats.append(bt)
 
             for bt in measure_beats:
@@ -448,6 +494,32 @@ class Game:
                 ))
 
         self.bounce_events.sort(key=lambda e: e.time)
+
+    def _apply_bounce_grace_periods(self):
+        """Mark beatmap notes within 2 beats of each bounce event as rests.
+        Does not blank notes inside dual-side sections."""
+        if not self.bounce_events:
+            return
+        grace_beats = 2
+        grace_duration = self.beat_duration * grace_beats
+        lead_in = self.rhythm.lead_in
+        dual_ranges = [(ds.start_time, ds.end_time) for ds in self.dual_side_sections]
+
+        for event in self.bounce_events:
+            bounce_time = event.time + lead_in  # convert to beatmap timeline
+            for note in self.rhythm.beat_map:
+                if note.is_rest or not note.char:
+                    continue
+                # Don't blank notes inside dual-side sections
+                note_song_time = note.timestamp - lead_in
+                in_dual = any(ds <= note_song_time < de for ds, de in dual_ranges)
+                if in_dual:
+                    continue
+                dt = note.timestamp - bounce_time
+                # Grace window: 1 beat before, 2 beats after the bounce
+                if -self.beat_duration <= dt <= grace_duration:
+                    note.is_rest = True
+                    note.char = ""
 
     def update_bounce_state(self, current_time: float, dt: float):
         """Update bounce mode: toggle direction when crossing bounce obstacles."""
@@ -471,20 +543,6 @@ class Game:
         if was_active and not self.bounce_active:
             self.bounce_reversed = False
 
-        if self.bounce_reversed:
-            target = -30.0
-        elif self.bounce_active:
-            target = 15.0
-        else:
-            target = 0.0
-
-        spring_strength = 10.0
-        damping = 6.0
-        dist = target - self.hit_marker_bounce_offset
-        accel = spring_strength * dist - damping * self.hit_marker_bounce_velocity
-        self.hit_marker_bounce_velocity += accel * dt
-        self.hit_marker_bounce_offset += self.hit_marker_bounce_velocity * dt
-
     def update_cat_position(self, current_time: float, dt: float):
         """
         Update cat position with momentum-style animation for dual-side mode.
@@ -494,6 +552,7 @@ class Game:
 
         visual_exit_delay = self.beat_duration * 1
 
+        was_dual_active = self.dual_side_active
         self.dual_side_active = False
         self.dual_side_visuals_active = False
 
@@ -505,6 +564,10 @@ class Game:
             elif dual_sec.end_time <= song_time < dual_sec.end_time + visual_exit_delay:
                 self.dual_side_visuals_active = True
                 break
+
+        # Track when dual mode ends for note teleport suppression
+        if was_dual_active and not self.dual_side_active:
+            self._last_dual_end_time = song_time
 
         if self.dual_side_visuals_active:
             target_x = self.cat_center_x
@@ -550,8 +613,11 @@ class Game:
         else:
             target_start = self.timeline_normal_start
             target_end = self.timeline_normal_end
-            grace = (C.GRACE * self.scroll_speed)
-            target_hit = self.hit_marker_normal_x - grace/6
+            if self.bounce_active:
+                target_hit = self.hit_marker_normal_x
+            else:
+                grace = (C.GRACE * self.scroll_speed)
+                target_hit = self.hit_marker_normal_x - grace/6
             target_word_y = self.word_normal_y
 
         if not hasattr(self, '_timeline_initialized'):
@@ -752,13 +818,18 @@ class Game:
 
                     self.check_drop_note_hit(current_char_idx)
 
+                    # Ripple effect at hit marker on correct press
+                    self.trigger_hit_ripple(
+                        int(self.hit_marker_current_x), 380
+                    )
+
                     if judgment == 'perfect':
                         self.show_message(f"PERFECT! ×{combo}", 0.8)
                     elif judgment == 'good':
                         self.show_message(f"Good ×{combo}", 0.8)
                     elif judgment == 'ok':
                         self.show_message(f"OK ×{combo}", 0.8)
-                    
+
                     self.score = self.rhythm.get_score()
                     self.used_current_char = True
                 else:
@@ -767,7 +838,11 @@ class Game:
                         self.show_message("Wrong Key!", 0.8)
                     else:
                         self.show_message("Miss!", 0.8)
-                    
+
+                    # Flash timeline red + tiny shake on miss/wrong
+                    self._timeline_flash = 1.0
+                    self._timeline_shake_offset = 6.0
+
                     self.misses = self.rhythm.miss_count
                     self.used_current_char = True
 
@@ -1022,15 +1097,33 @@ class Game:
 
         # --- draw timeline (using animated positions)
         timeline_y = 380
+        # Apply miss shake offset
+        if self._timeline_shake_offset > 0.3:
+            timeline_y += int(self._timeline_shake_offset)
+            self._timeline_shake_offset *= -0.5  # oscillate and decay
+        else:
+            self._timeline_shake_offset = 0.0
+
         timeline_start_x = int(self.timeline_current_start)
         timeline_end_x = int(self.timeline_current_end)
-        hit_marker_x = self.hit_marker_current_x + self.hit_marker_bounce_offset
+        hit_marker_x = self.hit_marker_current_x
 
-        pygame.draw.line(self.screen, (255, 255, 255),
+        # Flash timeline red on miss, decay to white
+        if self._timeline_flash > 0.01:
+            r = int(255)
+            g = int(255 * (1.0 - self._timeline_flash))
+            b = int(255 * (1.0 - self._timeline_flash))
+            timeline_color = (r, g, b)
+            self._timeline_flash *= 0.85
+        else:
+            timeline_color = (255, 255, 255)
+            self._timeline_flash = 0.0
+
+        pygame.draw.line(self.screen, timeline_color,
                         (timeline_start_x, timeline_y),
                         (timeline_end_x, timeline_y), 6)
 
-        # Draw visual hit marker at the actual hit position
+        # Draw visual hit marker at the fixed position (no bounce offset)
         pygame.draw.line(self.screen, (155, 255, 100),
                         (int(hit_marker_x) - C.HIT_MARKER_X_OFFSET, timeline_y),
                         (int(hit_marker_x) + C.HIT_MARKER_X_OFFSET, timeline_y), C.HIT_MARKER_WIDTH)
@@ -1058,7 +1151,11 @@ class Game:
         for i, beat_time in enumerate(beat_times):
             t = beat_time + lead_in
             time_until = t - current_time
-            x = hit_marker_x + time_until * self.scroll_speed
+            # Reverse grid direction during bounce mode
+            if self.bounce_active and not self.dual_side_active and self.bounce_reversed:
+                x = hit_marker_x - time_until * self.scroll_speed
+            else:
+                x = hit_marker_x + time_until * self.scroll_speed
 
             if timeline_start_x <= x <= timeline_end_x:
                 if i % 4 == 0:
@@ -1120,6 +1217,8 @@ class Game:
                         arrow_x = hit_marker_x - (time_until * self.scroll_speed)
                     else:
                         arrow_x = hit_marker_x + (time_until * self.scroll_speed)
+                elif self.bounce_active and self.bounce_reversed:
+                    arrow_x = hit_marker_x - time_until * self.scroll_speed
                 else:
                     arrow_x = hit_marker_x + time_until * self.scroll_speed
 
@@ -1132,11 +1231,20 @@ class Game:
             evt_time = evt.time + lead_in
             time_until = evt_time - current_time
             if -0.5 < time_until < 5.0:
-                obs_x = hit_marker_x + time_until * self.scroll_speed
+                if self.bounce_active and self.bounce_reversed:
+                    obs_x = hit_marker_x - time_until * self.scroll_speed
+                else:
+                    obs_x = hit_marker_x + time_until * self.scroll_speed
                 if timeline_start_x <= obs_x <= timeline_end_x:
                     self.draw_bounce_obstacle(int(obs_x), timeline_y)
 
         # --- draw beat markers/notes (render AFTER arrows so notes appear on top)
+
+        # Grace window after dual mode ends: suppress leftover notes to prevent teleporting
+        song_time = current_time - lead_in
+        dual_exit_grace = self.beat_duration * 2
+        in_dual_exit_grace = (not self.dual_side_active
+                              and song_time - self._last_dual_end_time < dual_exit_grace)
 
         for note_idx, event in enumerate(self.rhythm.beat_map):
             time_until_hit = event.timestamp - current_time
@@ -1144,6 +1252,10 @@ class Game:
             # --- calculate position
 
             if -0.75 < time_until_hit < 5.0:
+                # Skip unhit notes that were in a dual-side section (they'd teleport)
+                if in_dual_exit_grace and not event.hit and time_until_hit < 0:
+                    continue
+
                 note_from_left = False
                 if self.dual_side_active and event.char_idx >= 0:
                     note_from_left = (event.char_idx % 2 == 1)

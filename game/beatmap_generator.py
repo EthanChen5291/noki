@@ -2,9 +2,7 @@ import random
 from typing import Optional
 from analysis.audio_analysis import (
     analyze_song_intensity, 
-    get_sb_info, 
-    group_info_by_section, 
-    filter_sb_info
+    get_sb_info
 )
 from . import constants as C
 from . import models as M
@@ -178,7 +176,7 @@ def assign_words_to_slots(
     last_word_end_time = -float('inf')
     last_word_text = ""
 
-    # Grace period at start of dual sections: 1 measure (4 beats) of rest
+    # one measure grace period awhen starting dual sections
     grace_beats = 4
     grace_duration = grace_beats * beat_duration
 
@@ -464,23 +462,19 @@ def generate_beatmap(
 
     events = deduplicate_events(events, beat_duration, min_spacing=0.1)
 
-    # --- Song alignment: ensure beatmap doesn't extend past song duration
+    #ensure beatmap doesn't extend past song duration
     # and pad with a blank measure of rest at the end so the last word
     # has time to scroll off before the level ends
     song_end = song.duration
     measure_duration = beat_duration * C.BEATS_PER_MEASURE
 
-    # Remove any events that would fall past the song duration (minus one measure buffer)
     if events:
         cutoff = song_end - measure_duration
         events = [e for e in events if e.timestamp <= cutoff]
 
-    # Add a trailing rest event ~1 measure after the last note so the level
-    # doesn't end abruptly when the last note is hit
     if events:
         last_event_time = max(e.timestamp for e in events)
         pad_time = last_event_time + measure_duration
-        # Only pad if it doesn't exceed song duration
         if pad_time <= song_end + measure_duration:
             events.append(M.CharEvent(
                 char="",
