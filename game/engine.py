@@ -565,6 +565,13 @@ class Game:
                 self.dual_side_visuals_active = True
                 break
 
+        # Keep dual mode active if current note is a dual-mode note (from_left)
+        if not self.dual_side_active and self.rhythm.char_event_idx < len(self.rhythm.beat_map):
+            current_evt = self.rhythm.beat_map[self.rhythm.char_event_idx]
+            if current_evt.from_left:
+                self.dual_side_active = True
+                self.dual_side_visuals_active = True
+
         # Track when dual mode ends for note teleport suppression
         if was_dual_active and not self.dual_side_active:
             self._last_dual_end_time = song_time
@@ -1261,6 +1268,8 @@ class Game:
                     note_from_left = (event.char_idx % 2 == 1)
 
                 if self.bounce_active and not self.dual_side_active:
+                    if time_until_hit < 0 and not event.hit:
+                        continue
                     note_from_left = self.bounce_reversed
 
                 if note_from_left:

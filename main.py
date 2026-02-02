@@ -72,7 +72,7 @@ def main():
 
         # ===== BUGS
         # doesn't wait until last char is finished in dual section before transitioning back
-        # sometimes has ghost letters (skips on its own) (only bounce mode)
+        # sometimes has ghost letters (skips on its own) (only bounce mode). 
         # sometimes doesn't have grace period when starting dual mode
 
         game = Game(level=level, screen=screen, clock=clock)

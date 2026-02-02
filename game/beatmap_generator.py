@@ -193,6 +193,10 @@ def assign_words_to_slots(
         in_grace_period = False
         if dual_side_sections:
             for dual_sec in dual_side_sections:
+                pre_start_begin = dual_sec.start_time - grace_duration
+                if pre_start_begin <= first_slot_time < dual_sec.start_time:
+                    in_grace_period = True
+                    break
                 start_grace_end = dual_sec.start_time + grace_duration
                 if dual_sec.start_time <= first_slot_time < start_grace_end:
                     in_grace_period = True
