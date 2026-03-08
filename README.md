@@ -1,56 +1,46 @@
-# noki
+# 🐱 Noki (v1.0)
+### *A High-Fidelity Rhythm-Typing Engine*
 
-![alt text](assets/images/noki_thumbnail.png)
+**Noki** is a procedural rhythm engine designed to bridge the gap between mechanical typing and the expressive "flow state" of modern rhythm games. By leveraging deterministic audio analysis and music theory, Noki transforms any audio file and word bank into a playable, musically-synced keyboard level.
 
-Noki's mission is to create an algorithm that injects as much musicality and proven design patterns into ANY "list of words" and ANY song/sound as possible -- mixing grid alignment with a controlled random/humanized feel to create a playable custom rhythmic level that takes "typing" up another key (musically and keyboard-ly).
+![noki](assets/images/noki_preview.png)
 
-Noki uses deterministic techniques, music theory, and audio analysis. As developers, we take heavy inspiration from modern rhythm games' systems, trends, and (albeit handmade) levels and want to imitate their impact with generated beatmaps from top to bottom. 
+---
 
-LIMITATION: may require iteration and playtesting to truly reach the level of hand-crafted levels. 
+## 🎯 Mission Statement
+Noki’s goal is to inject musicality and proven design patterns into **any** list of words and **any** sound. By mixing grid alignment with controlled humanization, we aim to imitate the impact of hand-crafted rhythm levels through a fully automated pipeline.
 
-### ==== FEATURES ==== ###
+---
 
-- Allows user customizability in designing levels/music (custom word bank per level, custom music)
-- Algorithm that maps words to bpm in a ergonomically satisfying way
-- 3-5 default progression levels, each level with a specific word bank (music finished) to demonstrate 
-- Journey, Classic, Master modes. Visualizer: (counted as checkmark on level (Journey accomplished), star (Classic accomplished), and cat crown (Master mode accomplished))
+## ✨ Core Features
+* **Dynamic Word Mapping:** An algorithm that maps word banks to BPM in an ergonomically satisfying way.
+* **Customizability:** Total user control over level design (Custom `.txt` word banks and `.mp3/.wav` music).
+* **Progression Tracking:**
+    * ✅ **Journey:** Level completed.
+    * ⭐ **Classic:** High-accuracy mastery.
+    * 👑 **Master:** Flawless execution (Cat Crown).
+* **FNF-Inspired Aesthetics:** Simplistic, constant-brush-thickness art style with high-energy animations.
 
-# FAR FUTURE
- add features to:
- 1. add X words to word bank by finding similar words in DIFFICULTY and CHARS_USED
- 2. add X words to word bank by finding similar words in DIFFICULTY but covering the less covered chars
- 3. cut X words from word bank that are cover chars that are too similar 
+---
 
-# ART
-style: constant brush thickness (no pressure sensor), simplistic with smooth animation 
-- art ref: check out friday night funkin
+## 🎹 Soundtrack & Level Progression
+| Level | Track ID | BPM | Status |
+| :--- | :--- | :--- | :--- |
+| 0 | **tutorial** | 120 | 🏁 Ending |
+| 1 | **heartme2** | 120 | 🏁 Ending |
+| 2 | **moonlitforest** | 110 | 🏁 Ending |
+| 3 | **goofuhdur** | 120 | 🏁 Ending |
+| 4 | **thatstrange..** | 150 | 🔄 Ongoing |
+| 5 | **RAMJAM** | 120 | 🏁 Ending |
+| 6 | **BAMSAM** | 170 | 🏁 Ending |
+| 7 | **finalmeow** | 180 | 🏁 Ending |
 
-- cat shaking head animation (loop)
+---
 
-THREE cat emote animations for CORRECT notes (happy) 
-      -> VERY QUICK -> should return back to cat shaking head
+## 🚀 Technical Roadmap
+### Phase 1: Algorithmic Expansion
+* **Similarity Logic:** Add words to the bank by finding matches in `DIFFICULTY` and `CHARS_USED`.
+* **Coverage Logic:** Add words that maintain `DIFFICULTY` but cover under-represented characters on the keyboard.
 
- THREE cat emote animations for INCORRECT notes (sad)
-      -> VERY QUICK -> should return back to cat shaking head
-
- speakers booming animation (loop)
- floating music notes coming out of speakers
-
-# 6 BACKGROUNDS, one for each song (very simple ones!)
-
-# MUSIC (undecided)
-
-LEVELS:
-- tutorial (bpm=120, song_secs:) yes_ending
-- heartme2 (bpm = 120, ) yes_ending
-- moonlitforest (bpm = 110) yes_ending
-- finalmeow (bpm=180, ) yes_ending
-- RAMJAM (bpm=120) yes_ending
-- BAMSAM (bpm=170) yes_ending
-- thatstrange.. (bpm=150) 
-- goofuhdur (bpm=120, )
-
-PASSIVE:
-- heyjazz (title screen) bpm=95 no_ending
-- heyjazz (level-play screen) bpm=95 no_ending
-- heyjazz (settings screen) bpm=95 no_ending
+---
+*Developed for the intersection of Music Composition and Computer Science.*
