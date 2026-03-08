@@ -81,12 +81,11 @@ def group_slots_by_measure(slots: list[M.RhythmSlot], beat_duration: float) -> l
         if 0 <= measure_idx < num_measures:
             measures[measure_idx].append(slot)
     
-    # measures = [m for m in measures if m]  # UNCOMMENT TO REMOVE EMPTY
+    # measures = [m for m in measures if m]  #uncomment to remove empty measures
     
     return measures
 
-
-# ==================== SMART WORD ASSIGNMENT ====================
+# --- word assignment
 
 def get_words_with_rhythm_info(words: list[str], beat_duration: float, target_cps: float = C.TARGET_CPS) -> list[M.Word]:
     """Enhanced word creation with better rhythm properties"""
@@ -149,7 +148,7 @@ def select_word_for_measure(
     return random.choice(viable if viable else candidates)
 
 
-# ==================== SLOT ASSIGNMENT ====================
+# --- slot assignment
 
 def find_next_measure_time(measures, start_idx, fallback_time):
     for j in range(start_idx + 1, len(measures)):
@@ -176,7 +175,7 @@ def assign_words_to_slots(
     last_word_end_time = -float('inf')
     last_word_text = ""
 
-    # one measure grace period awhen starting dual sections
+    # one measure grace period when starting dual sections
     grace_beats = 4
     grace_duration = grace_beats * beat_duration
 
