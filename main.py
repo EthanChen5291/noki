@@ -29,17 +29,18 @@ def main():
     pygame.display.set_caption("Key Dash")
     clock = pygame.time.Clock()
 
+    start_state = "title"
     while True:
-        menu = MenuManager(screen, clock, SONG_NAMES)
+        menu = MenuManager(screen, clock, SONG_NAMES, start_state=start_state)
         result = menu.run()
 
         if result is None:
             break
 
-        selected, difficulty = result
+        selected, difficulty, word_bank = result
 
         level = Level(
-            word_bank=WORD_BANK_2,
+            word_bank=word_bank,
             song_path=SONG_PATH + SONG_NAMES[selected],
             difficulty=difficulty,
         )
@@ -80,6 +81,7 @@ def main():
 
         game = Game(level=level, screen=screen, clock=clock)
         game.run()
+        start_state = "level_select"
 
     pygame.quit()
 

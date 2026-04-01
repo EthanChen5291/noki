@@ -794,6 +794,7 @@ class Game:
         
         if self.rhythm.is_finished():
             self.show_message("Congratulations!", 5)
+            self._exit_to_menu = True
             self.running = False
             return
         
