@@ -1,4 +1,4 @@
-# noki
+# Noki
 
 ![Noki Preview](assets/images/noki_preview.png)
 

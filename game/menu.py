@@ -2,6 +2,29 @@ import pygame
 import math
 import time
 import os
+import shutil
+
+
+def pick_audio_file():
+    """Open a native OS file-picker and return the chosen path (str) or None."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        path = filedialog.askopenfilename(
+            title="Select an Audio File",
+            filetypes=[
+                ("Audio Files", "*.mp3 *.wav"),
+                ("MP3 Files", "*.mp3"),
+                ("WAV Files", "*.wav"),
+            ]
+        )
+        root.destroy()
+        return path if path else None
+    except Exception:
+        return None
 
 
 class Button:
@@ -134,11 +157,21 @@ class LevelSelect:
         self.button_font = pygame.font.Font(None, 48)
         self.back_font = pygame.font.Font(None, 52)
         self.diff_font = pygame.font.Font(None, 28)
+        self.upload_font = pygame.font.Font(None, 40)
 
         self.scroll_offset = 0
         self.button_height = 60
         self.button_spacing = 16
-        self.list_top = 140
+        self.list_top = 158
+
+        # "Upload a song!" button — fixed above the scrollable list
+        self.upload_button = Button(
+            (sw // 2 - 185, 100, 370, 44),
+            "Upload a song!",
+            self.upload_font,
+            base_color=(140, 200, 255),
+            hover_color=(200, 230, 255),
+        )
 
         self.level_buttons = []
         self.difficulty_toggles: list[DifficultyToggle] = []
@@ -177,6 +210,11 @@ class LevelSelect:
         if self.back_button.check_click(mouse_pos, mouse_clicked):
             return "back", -1
 
+        # Upload button is fixed (not scroll-adjusted)
+        self.upload_button.check_hover(mouse_pos)
+        if self.upload_button.check_click(mouse_pos, mouse_clicked):
+            return "upload", -1
+
         adjusted_mouse = (mouse_pos[0], mouse_pos[1] + self.scroll_offset)
         for i, btn in enumerate(self.level_buttons):
             btn.check_hover(adjusted_mouse)
@@ -190,12 +228,16 @@ class LevelSelect:
 
     def draw(self, current_time):
         sw = self.screen.get_width()
+
         # header
         header = self.header_font.render("SELECT LEVEL", True, (255, 255, 255))
-        header_rect = header.get_rect(center=(sw // 2, 70))
+        header_rect = header.get_rect(center=(sw // 2, 62))
         self.screen.blit(header, header_rect)
 
         self.back_button.draw(self.screen, current_time)
+
+        # upload button (fixed — drawn before the scroll clip)
+        self.upload_button.draw(self.screen, current_time)
 
         # clip area for scrollable list
         clip_rect = pygame.Rect(0, self.list_top - 10, sw, self.screen.get_height() - self.list_top)
@@ -233,15 +275,110 @@ class LevelSelect:
         self.screen.set_clip(None)
 
 
+class FileUploadScreen:
+    """Screen that lets the user pick an .mp3 or .wav file and add it as a new level."""
+
+    def __init__(self, screen):
+        self.screen = screen
+        sw, sh = screen.get_size()
+        cy = sh // 2
+
+        self.title_font = pygame.font.Font(None, 80)
+        self.status_font = pygame.font.Font(None, 32)
+        btn_font = pygame.font.Font(None, 52)
+        back_font = pygame.font.Font(None, 52)
+
+        self.selected_path = None
+        self.status_message = "Choose an .mp3 or .wav file from your computer."
+        self.status_color = (160, 160, 160)
+
+        self.back_button = Button(
+            (30, 30, 120, 50),
+            "BACK",
+            back_font,
+            base_color=(180, 180, 180),
+            hover_color=(255, 255, 255),
+        )
+
+        self.browse_button = Button(
+            (sw // 2 - 160, cy - 100, 320, 60),
+            "Browse Files...",
+            btn_font,
+            base_color=(140, 180, 255),
+            hover_color=(200, 225, 255),
+        )
+
+        self.add_button = Button(
+            (sw // 2 - 160, cy + 50, 320, 60),
+            "Add to Game!",
+            btn_font,
+            base_color=(80, 200, 120),
+            hover_color=(120, 240, 160),
+        )
+
+    def show_error(self, message):
+        self.status_message = message
+        self.status_color = (255, 120, 120)
+
+    def update(self, mouse_pos, mouse_clicked, current_time):
+        self.back_button.check_hover(mouse_pos)
+        if self.back_button.check_click(mouse_pos, mouse_clicked):
+            return "back", None
+
+        self.browse_button.check_hover(mouse_pos)
+        if self.browse_button.check_click(mouse_pos, mouse_clicked):
+            path = pick_audio_file()
+            if path:
+                ext = os.path.splitext(path)[1].lower()
+                if ext not in ('.mp3', '.wav'):
+                    self.status_message = "Invalid file. Please select a .mp3 or .wav file."
+                    self.status_color = (255, 120, 120)
+                    self.selected_path = None
+                else:
+                    self.selected_path = path
+                    name = os.path.basename(path)
+                    self.status_message = f'"{name}" ready to add!'
+                    self.status_color = (120, 220, 140)
+
+        if self.selected_path:
+            self.add_button.check_hover(mouse_pos)
+            if self.add_button.check_click(mouse_pos, mouse_clicked):
+                return "upload", self.selected_path
+
+        return None, None
+
+    def draw(self, current_time):
+        sw, sh = self.screen.get_size()
+        cy = sh // 2
+
+        # Title
+        title = self.title_font.render("Upload a Song", True, (255, 255, 255))
+        self.screen.blit(title, title.get_rect(center=(sw // 2, cy - 160)))
+
+        # Browse button
+        self.browse_button.draw(self.screen, current_time)
+
+        # Status / selected file message
+        status = self.status_font.render(self.status_message, True, self.status_color)
+        self.screen.blit(status, status.get_rect(center=(sw // 2, cy + 10)))
+
+        # Add button (only visible once a file is selected)
+        if self.selected_path:
+            self.add_button.draw(self.screen, current_time)
+
+        self.back_button.draw(self.screen, current_time)
+
+
 class MenuManager:
     def __init__(self, screen, clock, song_names):
         self.screen = screen
         self.clock = clock
-        self.song_names = song_names
+        self.song_names = song_names  # mutable list — uploads append here
         self.state = "title"
 
         self.title_screen = TitleScreen(screen)
         self.level_select = LevelSelect(screen, song_names)
+        self.file_upload_screen = FileUploadScreen(screen)
 
         # transition state
         self.transition_start = 0.0
@@ -278,10 +415,27 @@ class MenuManager:
                 self.level_select.draw(current_time)
                 if action == "back":
                     self._start_transition("title", self.level_select.back_button.rect.center)
+                elif action == "upload":
+                    self.file_upload_screen = FileUploadScreen(self.screen)
+                    self.state = "upload"
                 elif action == "select":
                     btn = self.level_select.level_buttons[idx]
                     origin = (btn.rect.centerx, btn.rect.centery - self.level_select.scroll_offset)
                     self._start_transition("launch", origin, idx)
+
+            elif self.state == "upload":
+                action, data = self.file_upload_screen.update(mouse_pos, mouse_clicked, current_time)
+                self.file_upload_screen.draw(current_time)
+                if action == "back":
+                    self.state = "level_select"
+                elif action == "upload":
+                    ok, msg = self._handle_upload(data)
+                    if ok:
+                        # Rebuild level select so the new song appears
+                        self.level_select = LevelSelect(self.screen, self.song_names)
+                        self.state = "level_select"
+                    else:
+                        self.file_upload_screen.show_error(msg)
 
             elif self.state == "transition":
                 self._draw_transition(current_time)
@@ -294,6 +448,26 @@ class MenuManager:
 
             pygame.display.flip()
             self.clock.tick(60)
+
+    def _handle_upload(self, file_path):
+        """Copy the chosen audio file into assets/audios/ and add it to the song list.
+
+        Returns (True, filename) on success or (False, error_message) on failure.
+        """
+        try:
+            dest_dir = os.path.join("assets", "audios")
+            filename = os.path.basename(file_path)
+            dest_path = os.path.join(dest_dir, filename)
+
+            if not os.path.exists(dest_path):
+                shutil.copy2(file_path, dest_path)
+
+            if filename not in self.song_names:
+                self.song_names.append(filename)
+
+            return True, filename
+        except Exception as e:
+            return False, f"Upload failed: {e}"
 
     def _draw_transition(self, current_time):
         progress = min(1.0, (current_time - self.transition_start) / self.transition_duration)
