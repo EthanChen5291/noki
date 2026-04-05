@@ -93,15 +93,74 @@ _STOP_WORDS = {
 # fmt: on
 
 DEFAULT_WORD_BANK: list[str] = [
-    "dream","shadow","echo","spark","surge","drift","pulse","blaze","veil",
-    "flame","tide","glow","flare","dusk","dawn","haze","mist","void","flux",
-    "soar","hush","fierce","bold","wild","still","bright","deep","vast",
-    "pure","clear","gold","silver","crystal","prism","spiral","phantom",
-    "rhythm","melody","tempo","chord","verse","motion","balance","grace",
-    "valor","quest","mirage","cipher","zenith","solace","reverie","luster",
-    "cascade","emblem","fractal","haven","mystic","nimble","oracle","radiant",
-    "serene","tranquil","umbra","vivid","wander","marvel","fortune","legend",
-    "glory","infinite",
+    # animals / transport
+    "dog","cat","fish","bird","cow","pig","mouse","horse","wing","animal",
+    "train","plane","car","truck","bicycle","bus","boat","ship","tire","engine",
+    "ticket","airport","bridge","hotel","farm","court","school","office",
+    "room","town","club","bar","park","camp","store","shop","theater",
+    "library","hospital","church","market","country","building","ground",
+    "space","bank","location",
+    # clothing
+    "hat","dress","suit","skirt","shirt","pants","shoes","pocket","coat",
+    "stain","clothing",
+    # colors
+    "red","green","blue","yellow","brown","pink","orange","black","white",
+    "gray","color",
+    # people / family
+    "son","daughter","mother","father","parent","baby","woman","brother",
+    "sister","family","husband","wife","king","queen","president","neighbor",
+    "girl","child","adult","human","friend","victim","player","crowd",
+    "person","teacher","student","lawyer","doctor","patient","waiter",
+    "priest","police","army","soldier","artist","author","manager",
+    "reporter","actor",
+    # society / abstract
+    "job","religion","heaven","hell","death","medicine","money","dollar",
+    "bill","marriage","wedding","team","race","gender","murder","prison",
+    "energy","peace","attack","election","magazine","newspaper","poison",
+    "sport","exercise","ball","game","price","contract","drug","sign",
+    "science","band","song","music","movie",
+    # food / drink
+    "coffee","tea","wine","beer","juice","water","milk","cheese","bread",
+    "soup","cake","chicken","pork","beef","apple","banana","lemon","corn",
+    "rice","oil","seed","knife","spoon","fork","plate","cup","breakfast",
+    "lunch","dinner","sugar","salt","bottle","food",
+    # home / objects
+    "table","chair","bed","dream","window","door","bedroom","kitchen",
+    "bathroom","pencil","pen","soap","book","page","key","paint","letter",
+    "note","wall","paper","floor","ceiling","roof","pool","lock","phone",
+    "garden","yard","needle","bag","box","gift","card","ring","tool",
+    "clock","lamp","fan",
+    # tech
+    "network","computer","program","laptop","screen","camera","radio",
+    # body
+    "head","neck","face","beard","hair","eye","mouth","lip","nose","tooth",
+    "ear","tear","tongue","back","toe","finger","foot","hand","leg","arm",
+    "shoulder","heart","blood","brain","knee","sweat","disease","bone",
+    "voice","skin","body",
+    # nature
+    "sea","ocean","river","mountain","rain","snow","tree","sun","moon",
+    "world","earth","forest","sky","plant","wind","soil","flower","valley",
+    "root","lake","star","grass","leaf","air","sand","beach","wave","fire",
+    "ice","island","hill","heat","nature",
+    # materials / measurement
+    "glass","metal","plastic","wood","stone","diamond","clay","dust","gold",
+    "copper","silver","material","meter","inch","pound","half","circle",
+    "square","date","weight","edge","corner","map","vowel","light","sound",
+    "piece","pain","injury","hole","image","pattern","noun","verb",
+    "bottom","side","front","outside","inside","straight","north","south",
+    "east","west","direction","summer","spring","winter","season",
+    # verbs
+    "work","play","walk","run","drive","fly","swim","stop","follow","think",
+    "speak","eat","drink","smile","laugh","cry","buy","sell","shoot","learn",
+    "jump","smell","hear","listen","taste","touch","watch","kiss","burn",
+    "melt","explode","stand","love","cut","fight","dance","sleep","sing",
+    "count","marry","pray","lose","stir","bend","wash","cook","open","close",
+    "write","call","turn","build","teach","grow","draw","feed","catch",
+    "throw","clean","find","push","pull","carry","break","wear","hang",
+    "shake","beat","lift",
+    # adjectives
+    "long","short","tall","wide","narrow","large","small","little","slow",
+    "fast","cold","warm","cool","young","weak","alive","heavy","dark","famous",
 ]
 
 
@@ -453,8 +512,8 @@ class TitleScreen:
     _LERP_NORMAL   = 0.10
     _LERP_FAST     = 0.22
 
-    # beat-pulse constants  (90 BPM)
-    _BPM           = 90.0
+    # beat-pulse constants  (72 BPM)
+    _BPM           = 72.0
     _BEAT_PEAK     = 1.14   # title scale on the beat
     _BTN_BEAT_PEAK = 1.20   # button scale boost on the beat
     _BEAT_LERP     = 0.18   # how fast the scale chases the target each frame
@@ -1031,8 +1090,33 @@ class MenuManager:
         sw, sh = screen.get_size()
         self._petals = [Petal(sw, sh, randomize_y=True) for _ in range(self._PETAL_COUNT)]
 
-        # 3-2-1 countdown font  (20 % smaller than 220 → 176)
-        self._countdown_font = pygame.font.Font(_FONT, 176)
+        # ── Intro video ──────────────────────────────────────────────────────
+        _VIDEO_PATH = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "assets", "images", "noki_intro.mov",
+        )
+        self._video_cap       = None
+        self._video_done      = (music is not None and music.title_ready)
+        self._video_last_surf = None
+        self._video_acc       = 0.0
+        self._video_frame_dur = 1.0 / 30.0
+
+        if not self._video_done:
+            try:
+                import cv2  # type: ignore
+                if os.path.exists(_VIDEO_PATH):
+                    cap = cv2.VideoCapture(_VIDEO_PATH)
+                    if cap.isOpened():
+                        fps = cap.get(cv2.CAP_PROP_FPS)
+                        if fps > 0:
+                            self._video_frame_dur = 1.0 / fps
+                        self._video_cap = cap
+                    else:
+                        self._video_done = True
+                else:
+                    self._video_done = True
+            except ImportError:
+                self._video_done = True
 
         # per-song word banks (filename → word list)
         self.song_word_banks: dict[str, list[str]] = _load_word_banks()
@@ -1072,38 +1156,38 @@ class MenuManager:
                     petal.update()
                     petal.draw(self.screen)
             else:
-                # ── 3-2-1 countdown during 321.wav ──────────────────────────
-                # 180 BPM → beat every 1/3 s. Digits: "3" beat 0, "2" beat 1, "1" beat 2
-                # Each digit lerps in (scale 0→1) over half a beat, then lerps out
-                # (scale 1→0) over the second half of the beat.
-                _elapsed = self._music.intro_elapsed if self._music else 0.0
-                _beat_dur = 60.0 / 180.0          # 0.333 s
-                _beat_idx = int(_elapsed / _beat_dur)
-                _beat_t   = (_elapsed % _beat_dur) / _beat_dur   # 0→1 within beat
+                # ── Intro video on black background ──────────────────────────
+                if not self._video_done and self._video_cap is not None:
+                    import cv2  # type: ignore
+                    self._video_acc += dt
+                    # advance frames to stay in sync with elapsed time
+                    while self._video_acc >= self._video_frame_dur:
+                        self._video_acc -= self._video_frame_dur
+                        ret, frame = self._video_cap.read()
+                        if not ret:
+                            # video finished
+                            self._video_cap.release()
+                            self._video_cap   = None
+                            self._video_done  = True
+                            if self._music:
+                                self._music.on_intro_video_done()
+                            break
+                        # convert BGR→RGB and blit
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        fh, fw = frame_rgb.shape[:2]
+                        surf = pygame.surfarray.make_surface(
+                            frame_rgb.transpose(1, 0, 2)
+                        )
+                        sw2, sh2 = self.screen.get_size()
+                        # scale to screen height, maintain aspect ratio
+                        scaled_w = int(fw * sh2 / fh)
+                        surf = pygame.transform.smoothscale(surf, (scaled_w, sh2))
+                        self._video_last_surf = surf
 
-                if _beat_idx in (0, 1, 2, 3):
-                    _digit = str(3 - _beat_idx) if _beat_idx < 3 else "go"
-                    # timing: in=15%, hold=70%, out=15% of the beat
-                    _IN   = 0.15
-                    _OUT  = 0.15
-                    if _beat_t < _IN:
-                        # lerp in fast with acceleration (ease-in cubic)
-                        _p  = _beat_t / _IN
-                        _sc = _p ** 3
-                    elif _beat_t < 1.0 - _OUT:
-                        # hold at full size
-                        _sc = 1.0
-                    else:
-                        # lerp out fast with acceleration (ease-in cubic)
-                        _p  = (_beat_t - (1.0 - _OUT)) / _OUT
-                        _sc = 1.0 - _p ** 3
-                    _sc = max(0.01, _sc)
-                    _surf = self._countdown_font.render(_digit, True, (255, 255, 255))
-                    _sw2  = max(1, int(_surf.get_width()  * _sc))
-                    _sh2  = max(1, int(_surf.get_height() * _sc))
-                    _surf = pygame.transform.smoothscale(_surf, (_sw2, _sh2))
-                    sw, sh = self.screen.get_size()
-                    self.screen.blit(_surf, _surf.get_rect(center=(sw // 2, sh // 2)))
+                    if self._video_last_surf is not None and not self._video_done:
+                        sw2, sh2 = self.screen.get_size()
+                        x = (sw2 - self._video_last_surf.get_width()) // 2
+                        self.screen.blit(self._video_last_surf, (x, 0))
 
             if self.state == "title":
                 if _title_ready:

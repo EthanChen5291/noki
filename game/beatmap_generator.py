@@ -25,14 +25,11 @@ def build_rhythm_slots(sb_info: list[M.SubBeatInfo], song: M.Song) -> list[M.Rhy
             is_note_slot = True
             priority = 3  # high priority
         elif sb.level == M.SubBeatIntensity.MEDIUM:
-            is_note_slot = True
-            priority = 2  # medium priority
-        else:
-            # weak (only use if needed for rhythm variety)
-            if i > 0 and slots and (sb.time - slots[-1].time) > 0.4:
-                # fill long gaps with weak beats
+            # only include medium beats when there's a meaningful gap since the last slot
+            if not slots or (sb.time - slots[-1].time) > 0.6:
                 is_note_slot = True
-                priority = 1
+                priority = 2  # medium priority
+        # weak beats: skip entirely — too many fill the map and dilute strong beats
         
         if is_note_slot:
             slots.append(M.RhythmSlot(
@@ -217,7 +214,7 @@ def assign_words_to_slots(
             intensity = intensity_profile.section_intensities[section_idx]
             avg = sum(intensity_profile.section_intensities) / len(intensity_profile.section_intensities)
 
-            if intensity < avg * 0.6 and random.random() < 0.5:
+            if intensity < avg * 0.7 and random.random() < 0.65:
                 continue
 
         candidates = [w for w in remaining_words if w.text != last_word_text]
@@ -392,22 +389,18 @@ def adjust_slots_by_intensity(
         intensity_ratio = section_intensity / (avg_intensity + 1e-6)
         
         # ADJUST SLOT DENSITY BASED ON INTENSITY
-        if intensity_ratio > 1.3:  # very loud
+        if intensity_ratio > 1.3:  # very loud — allow medium + strong
             keep_slots = [s for s in measure_slots if s.priority >= 2]
-            effective_cps = target_cps * 1.2  # 20% faster
-        elif intensity_ratio > 1.1:  # moderately loud
+        elif intensity_ratio > 1.0:  # moderately loud — strong only
             keep_slots = [s for s in measure_slots if s.priority >= 3]
-            effective_cps = target_cps * 1.1  # 10% faster
-        elif intensity_ratio < 0.7:  # quiet section
-            keep_slots = sorted(measure_slots, key=lambda s: s.priority, reverse=True)
-            keep_slots = keep_slots[:max(2, len(measure_slots) // 2)]
-            effective_cps = target_cps * 0.8  # 20% slower
-        elif intensity_ratio < 0.9:  # slightly quiet
+        elif intensity_ratio < 0.6:  # very quiet — top strong slot only
+            strong = [s for s in measure_slots if s.priority >= 3]
+            keep_slots = strong[:1] if strong else []
+        elif intensity_ratio < 0.85:  # quiet — strong only, cap at 1
+            strong = [s for s in measure_slots if s.priority >= 3]
+            keep_slots = strong[:1] if strong else []
+        else:  # normal — strong only
             keep_slots = [s for s in measure_slots if s.priority >= 3]
-            effective_cps = target_cps * 0.9  # 10% slower
-        else:
-            keep_slots = measure_slots
-            effective_cps = target_cps
         
         if len(keep_slots) > 1:
             keep_slots.sort(key=lambda s: s.time)
@@ -463,7 +456,7 @@ def generate_beatmap(
     )
     #events = add_rhythm_variations(events, song)
 
-    events = deduplicate_events(events, beat_duration, min_spacing=0.1)
+    events = deduplicate_events(events, beat_duration, min_spacing=0.2)
 
     #ensure beatmap doesn't extend past song duration
     # and pad with a blank measure of rest at the end so the last word

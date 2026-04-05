@@ -6,47 +6,18 @@ Uses pygame.mixer.Sound on dedicated channels (8, 9) — completely separate
 from pygame.mixer.music which the game engine uses for song playback.
 
 State machine:
-  INTRO         321.wav plays at 180/110 speed (once)
-  TITLE         titleloop.wav loops
-  CROSSFADE     titleloop fades out / levels1 fades in  (1.5 s)
-  LEVELS_INTRO  levels1.wav plays once
-  LEVELS_LOOP   levelsloop.wav loops forever
+  INTRO         title2.wav plays once
+  TITLE         titleloop2.wav loops
+  CROSSFADE     titleloop2 fades out / levelsloop2 fades in  (0.5 s)
+  LEVELS_LOOP   levelsloop2.wav loops forever
   GAME          both channels paused while game song plays
 """
 
 import os
 import time
-import numpy as np
 import pygame
 
 _AUDIO = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "audios")
-
-
-def _load_speeded(path: str, speed: float) -> pygame.mixer.Sound:
-    """Load a WAV and return it resampled to play at `speed` × normal speed."""
-    import soundfile as sf
-    data, _sr = sf.read(path, dtype="int16", always_2d=True)  # (N, ch) int16
-    n_orig   = data.shape[0]
-    n_target = max(1, int(round(n_orig / speed)))
-
-    idx  = np.linspace(0, n_orig - 1, n_target)
-    i0   = idx.astype(np.int64)
-    i1   = np.minimum(i0 + 1, n_orig - 1)
-    frac = (idx - i0).astype(np.float32)[:, np.newaxis]
-    resampled = (
-        data[i0].astype(np.float32) * (1.0 - frac)
-        + data[i1].astype(np.float32) * frac
-    ).astype(np.int16)
-
-    # Conform to mixer channel count (mono ↔ stereo)
-    init = pygame.mixer.get_init()
-    mix_ch = init[2] if init else 2
-    if mix_ch == 2 and resampled.shape[1] == 1:
-        resampled = np.repeat(resampled, 2, axis=1)
-    elif mix_ch == 1 and resampled.shape[1] == 2:
-        resampled = resampled.mean(axis=1, keepdims=True).astype(np.int16)
-
-    return pygame.sndarray.make_sound(np.ascontiguousarray(resampled))
 
 
 class MusicManager:
@@ -57,14 +28,13 @@ class MusicManager:
     """
 
     # States
-    _INTRO        = "intro"
-    _TITLE        = "title"
-    _CROSSFADE    = "crossfade"
-    _LEVELS_INTRO = "levels_intro"
-    _LEVELS_LOOP  = "levels_loop"
-    _GAME         = "game"
+    _INTRO       = "intro"
+    _TITLE       = "title"
+    _CROSSFADE   = "crossfade"
+    _LEVELS_LOOP = "levels_loop"
+    _GAME        = "game"
 
-    _CROSSFADE_DUR = 0.5   # seconds — levels1 fades in over 0.5 s
+    _CROSSFADE_DUR = 0.5   # seconds — levelsloop2 fades in over 0.5 s
     _MASTER        = 0.75  # master volume for UI music
 
     def __init__(self):
@@ -74,31 +44,27 @@ class MusicManager:
         self._ch0 = pygame.mixer.Channel(8)   # title side
         self._ch1 = pygame.mixer.Channel(9)   # levels side
 
-        # Load sounds (321 gets resampled for speed, others are normal)
-        self._snd_321     = _load_speeded(os.path.join(_AUDIO, "321.wav"), 180 / 110)
-        self._snd_title   = pygame.mixer.Sound(os.path.join(_AUDIO, "titleloop.wav"))
-        self._snd_levels1 = pygame.mixer.Sound(os.path.join(_AUDIO, "levels1.wav"))
-        self._snd_loop    = pygame.mixer.Sound(os.path.join(_AUDIO, "levelsloop.wav"))
+        self._snd_title_intro = pygame.mixer.Sound(os.path.join(_AUDIO, "title2.wav"))
+        self._snd_title_loop  = pygame.mixer.Sound(os.path.join(_AUDIO, "titleloop2.wav"))
+        self._snd_levels      = pygame.mixer.Sound(os.path.join(_AUDIO, "levelsloop2.wav"))
 
         self._state          = self._INTRO
         self._pre_game       = None
         self._fade_t         = 0.0
         self._intro_start_t  = time.time()
+        self._video_done     = False   # set when video finishes; unlocks title screen
 
-        # Kick off the intro
+        # Kick off the intro sound
         self._ch0.set_volume(self._MASTER)
         self._ch1.set_volume(0.0)
-        self._ch0.play(self._snd_321)
+        self._ch0.play(self._snd_title_intro)
 
     # ── Called every frame from MenuManager.run() ────────────────────────────
 
     def update(self, dt: float) -> None:
         if self._state == self._INTRO:
             if not self._ch0.get_busy():
-                # 321 finished → start titleloop
-                self._state = self._TITLE
-                self._ch0.set_volume(self._MASTER)
-                self._ch0.play(self._snd_title, loops=-1)
+                self._transition_to_title()
 
         elif self._state == self._CROSSFADE:
             self._fade_t = min(self._fade_t + dt, self._CROSSFADE_DUR)
@@ -109,37 +75,44 @@ class MusicManager:
             if self._fade_t >= self._CROSSFADE_DUR:
                 self._ch0.stop()
                 self._ch0.set_volume(0.0)
-                self._state = self._LEVELS_INTRO
-
-        elif self._state == self._LEVELS_INTRO:
-            if not self._ch1.get_busy():
-                # levels1 finished → start levelsloop
                 self._state = self._LEVELS_LOOP
-                self._ch1.set_volume(self._MASTER)
-                self._ch1.play(self._snd_loop, loops=-1)
+
+    def _transition_to_title(self) -> None:
+        self._state = self._TITLE
+        self._ch0.set_volume(self._MASTER)
+        self._ch0.play(self._snd_title_loop, loops=-1)
 
     # ── Event hooks ──────────────────────────────────────────────────────────
 
     @property
     def intro_elapsed(self) -> float:
-        """Seconds since 321.wav started; inf once intro is over."""
+        """Seconds since title2.wav started; inf once intro is over."""
         if self._state != self._INTRO:
             return float('inf')
         return time.time() - self._intro_start_t
 
     @property
     def title_ready(self) -> bool:
-        """True once 321.wav has finished and titleloop is (or will be) playing."""
-        return self._state != self._INTRO
+        """True once the video has finished (title screen can show).
+        title2.wav may still be playing — it will naturally transition to titleloop2."""
+        return self._video_done or self._state != self._INTRO
+
+    def on_intro_video_done(self) -> None:
+        """Call when the intro video finishes.
+        Reveals the title screen but does NOT interrupt title2.wav — it plays
+        until done, then titleloop2 starts as normal."""
+        self._video_done = True
 
     def on_play_pressed(self) -> None:
         """Call when the title-screen play button is clicked."""
-        if self._state == self._TITLE:
+        if self._state in (self._INTRO, self._TITLE):
+            # Stop title2 / titleloop2 and crossfade to levelsloop2
+            self._ch0.stop()
             self._state  = self._CROSSFADE
             self._fade_t = 0.0
             self._ch1.set_volume(0.0)
-            self._ch1.play(self._snd_levels1)
-        # All other states: already past intro → do nothing
+            self._ch1.play(self._snd_levels, loops=-1)
+        # All other states: already past title → do nothing
 
     def pause_for_game(self) -> None:
         """Silence UI music while the game's own song is playing."""

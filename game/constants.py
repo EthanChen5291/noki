@@ -34,7 +34,7 @@ MIN_PAUSE = 0.5 #pause between each word
 IDEAL_PAUSE = 1.5
 MAX_PAUSE = 2.0
 
-MIN_WORD_GAP = 0.3  # 400ms gap to read upcoming word
+MIN_WORD_GAP = 0.6  # 600ms minimum gap between words
 # Intervals of 0.5 here to stick to eight notes (because 0.5 of a beat is a half beat) for playability 
 # since triplets (0.33) are weird and sixteenth notes (0.25) are prob too fast
 
@@ -84,18 +84,18 @@ class DifficultyProfile:
 
 DIFFICULTY_PROFILES = {
     "journey": DifficultyProfile(
-        target_cps=2.5, min_cps=2.0, max_cps=3.5,
-        cps_tolerance=0.7, min_char_spacing=0.20,
+        target_cps=2.0, min_cps=1.5, max_cps=3.0,
+        cps_tolerance=0.7, min_char_spacing=0.35,
         timing_scale=1.4, scroll_scale=0.8,
     ),
     "classic": DifficultyProfile(
-        target_cps=3.5, min_cps=3.0, max_cps=4.5,
-        cps_tolerance=0.5, min_char_spacing=0.15,
+        target_cps=3.0, min_cps=2.5, max_cps=4.0,
+        cps_tolerance=0.5, min_char_spacing=0.25,
         timing_scale=1.0, scroll_scale=1.0,
     ),
     "master": DifficultyProfile(
-        target_cps=5.0, min_cps=4.0, max_cps=6.5,
-        cps_tolerance=0.4, min_char_spacing=0.10,
+        target_cps=4.5, min_cps=3.5, max_cps=6.0,
+        cps_tolerance=0.4, min_char_spacing=0.16,
         timing_scale=0.7, scroll_scale=1.25,
     ),
 }
