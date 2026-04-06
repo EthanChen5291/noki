@@ -6,13 +6,13 @@ from game.music import MusicManager
 
 SONG_PATH = "assets/audios/"
 SONG_NAMES = [
-    "BurgeraX - Scorpion.mp3",
-    "Toby Fox - THE WORLD REVOLVING.mp3",
+    "Scorpion.mp3",
+    "Decisive Battle.mp3", 
+    "Chaos Construct.mp3", 
+    "Playful Massacre.mp3", 
     "Toby Fox - Finale.mp3",
-    "miley.mp3",
     "ICARIUS.mp3",
     "Fluffing A Duck.mp3",
-    "Megalovania.mp3",
     "Malo Kart.mp3",
     "tidalwave.mp3",
     "hustle.mp3",

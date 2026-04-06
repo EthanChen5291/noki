@@ -500,6 +500,60 @@ class ImageButton:
         screen.blit(surf, surf.get_rect(center=(self.cx, self.cy)))
 
 
+# ─── PNG sequence sprite ─────────────────────────────────────────────────────
+
+class PNGSequenceSprite:
+    """Plays a sorted sequence of transparent PNGs at a fixed FPS.
+
+    All frames are pre-loaded and optionally scaled at construction time so
+    playback is allocation-free.  Call ``advance(dt)`` each game tick and read
+    ``current`` to get the surface to blit.
+    """
+
+    def __init__(self, folder: str, fps: float = 30.0,
+                 scale: tuple[int, int] | None = None) -> None:
+        self.fps = fps
+        self._acc: float = 0.0
+        self._idx: int = 0
+        self._frames: list[pygame.Surface] = []
+
+        if not os.path.isdir(folder):
+            return
+
+        paths = sorted(
+            os.path.join(folder, f)
+            for f in os.listdir(folder)
+            if f.lower().endswith(".png")
+        )
+        for path in paths:
+            surf = pygame.image.load(path).convert_alpha()
+            if scale is not None:
+                surf = pygame.transform.smoothscale(surf, scale)
+            self._frames.append(surf)
+
+    @property
+    def ready(self) -> bool:
+        return len(self._frames) > 0
+
+    @property
+    def current(self) -> pygame.Surface | None:
+        if not self._frames:
+            return None
+        return self._frames[self._idx]
+
+    def advance(self, dt: float = 1.0 / 60.0) -> None:
+        """Advance the animation by *dt* seconds.  Call once per game tick."""
+        if not self._frames:
+            return
+        self._acc += dt
+        frame_dur = 1.0 / self.fps
+        while self._acc >= frame_dur:
+            self._acc -= frame_dur
+            self._idx = (self._idx + 1) % len(self._frames)
+
+
+
+
 # ─── Title screen ────────────────────────────────────────────────────────────
 
 class TitleScreen:
@@ -591,7 +645,7 @@ class TitleScreen:
 
                 # Load spotlight.png: 30% wider than bop, extends 10% screen below bop bottom
                 _bop_w  = int(_fw * self._bop_h / _fh) if _fh > 0 else self._bop_h
-                _spot_w = int(_bop_w * 1.30)
+                _spot_w = int(_bop_w * 0.78)
                 _spot_h = int((_btn_bottom + int(sh * 0.10)) * 1.15)   # +15% vertical stretch
                 _raw    = pygame.image.load(
                     os.path.join(self._ASSETS, "spotlight.png")
@@ -606,6 +660,21 @@ class TitleScreen:
         half = int(self._btn_size * self._scale) // 2
         r = pygame.Rect(self.btn_cx - half, self.btn_cy - half, half * 2, half * 2)
         return r.collidepoint(mouse_pos)
+
+    def reset(self):
+        """Call whenever the title screen becomes active to clear stale animation state."""
+        self._last_beat          = -1
+        self._bop_acc            = 0.0
+        self._title_scale        = 1.0
+        self._title_scale_target = 1.0
+        self._scale              = 1.0
+        self._click_phase        = None
+        if self._bop_cap is not None:
+            try:
+                import cv2 as _cv2
+                self._bop_cap.set(_cv2.CAP_PROP_POS_FRAMES, 0)
+            except Exception:
+                pass
 
     def update(self, mouse_pos, mouse_clicked, current_time):
         hovered = self._btn_hovered(mouse_pos)
@@ -725,7 +794,7 @@ class LevelSelect:
         # ── Upload zone (left 35%) ───────────────────────────────────────
         div_x = int(sw * self._LEFT_FRAC)
         self.upload_cx = div_x // 2
-        self.upload_cy = sh // 2
+        self.upload_cy = sh // 2 + int(sh * 0.24)
 
         tw1, tw2 = self.upload_font1.size("Upload")[0], self.upload_font2.size("A File!")[0]
         th1, th2 = self.upload_font1.get_height(), self.upload_font2.get_height()
@@ -740,6 +809,54 @@ class LevelSelect:
         self._upload_scale   = 1.0
         self._upload_line1_y_off = -(th1 + gap + th2) // 2 + th1 // 2
         self._upload_line2_y_off = self._upload_line1_y_off + th1 // 2 + gap + th2 // 2
+
+        # ── noki_base_loop + eye overlays (all PNG sequences) ───────────────
+        _assets = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "images")
+        _loop_bottom = self.upload_rect.top + 6
+        self._noki_loop_cx     = self.upload_cx
+        self._noki_loop_bottom = _loop_bottom
+        self._mouse_pos        = (sw // 2, sh // 2)
+        self._eye_ox           = 0
+        self._eye_oy           = 0
+        self._eye_track_acc    = 0.0
+        self._noki_loop_w      = 0
+        self._noki_loop_h      = 0
+
+        # Derive scale from first frame of noki_base_loop
+        _base_dir = os.path.join(_assets, "noki_base_loop")
+        _avail_h  = _loop_bottom - 20
+        _body_scale: tuple[int, int] | None = None
+        if os.path.isdir(_base_dir):
+            _first = next(
+                (os.path.join(_base_dir, f)
+                 for f in sorted(os.listdir(_base_dir))
+                 if f.lower().endswith(".png")),
+                None,
+            )
+            if _first:
+                _tmp = pygame.image.load(_first)
+                _pw, _ph = _tmp.get_size()
+                _bh = min(_avail_h, _ph)
+                _bw = int(_pw * _bh / _ph) if _ph > 0 else _pw
+                _body_scale = (_bw, _bh)
+                self._noki_loop_w = _bw
+                self._noki_loop_h = _bh
+
+        self._noki_loop_seq = PNGSequenceSprite(
+            _base_dir, fps=30.0, scale=_body_scale
+        )
+
+        # Shift noki + eyes down by 25% of the body image height
+        self._noki_loop_bottom = _loop_bottom + int(sh * 0.13)
+
+        # Eye PNG sequences — same scale as body, untouched
+        _eye_scale: tuple[int, int] | None = _body_scale
+        self._leye_seq = PNGSequenceSprite(
+            os.path.join(_assets, "left"), fps=30.0, scale=_eye_scale
+        )
+        self._reye_seq = PNGSequenceSprite(
+            os.path.join(_assets, "right"), fps=30.0, scale=_eye_scale
+        )
 
         # ── Song list (right 65%) ────────────────────────────────────────
         # btn_x anchored close to the divider so names get maximum width.
@@ -804,6 +921,8 @@ class LevelSelect:
         return pygame.Rect(self._sb_x, thumb_y, self._sb_w, thumb_h)
 
     def update(self, mouse_pos, mouse_clicked, _current_time):
+        self._mouse_pos = mouse_pos
+
         if self.back_button.update(mouse_pos, mouse_clicked):
             return "back", -1
 
@@ -832,6 +951,31 @@ class LevelSelect:
             self.difficulty_selectors[i].check_click(adj, mouse_clicked)
             if btn.check_click(adj, mouse_clicked):
                 return "select", i
+
+        # ── advance all PNG sequences ────────────────────────────────────
+        self._noki_loop_seq.advance(1.0 / 60.0)
+        self._leye_seq.advance(1.0 / 60.0)
+        self._reye_seq.advance(1.0 / 60.0)
+
+        # ── update eye tracking at 12 fps ────────────────────────────────
+        self._eye_track_acc += 1.0 / 60.0
+        if self._eye_track_acc >= 1.0 / 10.0:
+            self._eye_track_acc = 0.0
+            if self._noki_loop_h > 0:
+                _sh = self.screen.get_height()
+                _eye_radius = _sh * 0.01
+                _img_top = self._noki_loop_bottom - self._noki_loop_h
+                _eye_cx  = float(self._noki_loop_cx)
+                _eye_cy  = _img_top + self._noki_loop_h * (1.0 - 0.66)
+                _dx = self._mouse_pos[0] - _eye_cx
+                _dy = self._mouse_pos[1] - _eye_cy
+                _dist = (_dx * _dx + _dy * _dy) ** 0.5
+                if _dist > 0:
+                    _sf = min(1.0, _eye_radius / _dist)
+                    self._eye_ox = int(_dx * _sf)
+                    self._eye_oy = int(_dy * _sf)
+                else:
+                    self._eye_ox, self._eye_oy = 0, 0
 
         return None, -1
 
@@ -871,6 +1015,25 @@ class LevelSelect:
                     s, (max(1, int(s.get_width() * sc)), max(1, int(s.get_height() * sc))))
             cy = self.upload_cy + int(y_off * sc)
             self.screen.blit(s, s.get_rect(center=(self.upload_cx, cy)))
+
+        # noki_base_loop body + eyes (drawn over the upload button)
+        # Button top rises by (bh - base_h) / 2 when hovered — noki lifts with it
+        _btn_lift = (bh - self.upload_rect.h) // 2
+        _noki_y   = self._noki_loop_bottom - _btn_lift
+
+        _body = self._noki_loop_seq.current
+        if _body is not None:
+            self.screen.blit(_body, _body.get_rect(
+                midbottom=(self._noki_loop_cx, _noki_y)
+            ))
+
+        # Eye PNG overlays — follow the mouse (offset updated at 10 fps)
+        for _eye_surf in (self._leye_seq.current, self._reye_seq.current):
+            if _eye_surf is not None:
+                self.screen.blit(_eye_surf, _eye_surf.get_rect(
+                    midbottom=(self._noki_loop_cx + self._eye_ox,
+                               _noki_y + self._eye_oy)
+                ))
 
         # Right panel header
         right_cx = div_x + (sw - div_x) // 2
@@ -1154,6 +1317,8 @@ class MenuManager:
         self.title_screen       = TitleScreen(screen)
         self.level_select       = LevelSelect(screen, song_names)
         self.file_upload_screen = FileUploadScreen(screen)
+        if start_state != "title":
+            self.title_screen.reset()
 
         self.transition_start        = 0.0
         self.transition_duration     = 0.5
@@ -1315,6 +1480,8 @@ class MenuManager:
                         word_bank  = self._word_bank_for(idx)
                         return (idx, difficulty, word_bank)
                     self.state = self.transition_target_state
+                    if self.state == "title":
+                        self.title_screen.reset()
 
             pygame.display.flip()
 
@@ -1376,10 +1543,10 @@ class PauseScreen:
         sw, sh = screen.get_size()
         btn_font = pygame.font.Font(_FONT, 56)
         self.resume_button = Button(
-            (sw // 2 - 120, sh // 2 - 50, 240, 60), "RESUME", btn_font,
+            (sw // 2 - 120, sh // 2 - 70, 240, 60), "RESUME", btn_font,
         )
         self.menu_button = Button(
-            (sw // 2 - 120, sh // 2 + 30, 240, 60), "MAIN MENU", btn_font,
+            (sw // 2 - 120, sh // 2 + 50, 240, 60), "MAIN MENU", btn_font,
         )
         self.open_time = time.time()
 
@@ -1398,7 +1565,7 @@ class PauseScreen:
         ease = 1 - (1 - t) ** 3
 
         overlay = pygame.Surface((sw, sh), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, int(120 * ease)))
+        overlay.fill((0, 0, 0, int(80 * ease)))
         self.screen.blit(overlay, (0, 0))
 
         thickness = int(self.BORDER_THICKNESS * ease)

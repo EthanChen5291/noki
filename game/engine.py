@@ -1,6 +1,4 @@
 import pygame
-import imageio
-import numpy as np
 import sys
 import time
 import os
@@ -16,10 +14,6 @@ from .rhythm import RhythmManager, calculate_lead_in
 from .input import Input
 from .beatmap_generator import generate_beatmap
 from analysis.audio_analysis import (
-    analyze_song_intensity,
-    get_sb_info,
-    group_info_by_section,
-    filter_sb_info,
     get_song_info,
     detect_drops,
     classify_pace,
@@ -57,6 +51,10 @@ class Game:
         self.score = 0
         self.misses = 0
         self.font = pygame.font.Font(_FONT, 48)
+        self._last_score = 0
+        self._score_popups: list[dict] = []  # each: {delta, y, alpha}
+        self._score_font = pygame.font.Font(_FONT, 56)
+        self._popup_font = pygame.font.Font(_FONT, 38)
         
         self.message = None
         self.message_duration = 0.0
@@ -110,6 +108,13 @@ class Game:
         timeline_file = os.path.join(assets_path, 'noki_timeline.png')
         self.timeline_img = pygame.image.load(timeline_file).convert_alpha()
         self.timeline_img = pygame.transform.scale(self.timeline_img, (1920, 200))
+
+        _hm_w = 2 * abs(C.HIT_MARKER_X_OFFSET)
+        _hm_h = 2 * abs(C.HIT_MARKER_Y_OFFSET)
+        self.hitmarker_img = pygame.transform.smoothscale(
+            pygame.image.load(os.path.join(assets_path, 'hitmarker.png')).convert_alpha(),
+            (_hm_w, _hm_h)
+        )
 
         # Petal spinner images
         _psz   = 40
@@ -241,8 +246,8 @@ class Game:
         self._apply_bounce_grace_periods()
 
         # --- cat position for dual-side mode animation
-        self.cat_base_x = 150  # normal left position
-        self.cat_center_x = screen_width // 2 - 115  # center position (accounting for cat width)
+        self.cat_base_x = 150 - int(screen_width * 0.02)  # normal left position
+        self.cat_center_x = screen_width // 2 - 115 - int(screen_width * 0.065)  # center position (accounting for cat width)
         self.cat_current_x = float(self.cat_base_x)
         self.cat_velocity = 0.0  # for momentum animation
         self.dual_side_active = False
@@ -327,7 +332,7 @@ class Game:
         self.pause_screen = None
         pygame.mixer.music.unpause()
 
-    def _update_paused(self, dt):
+    def _update_paused(self, *_):
         # blit the frozen snapshot captured when pause was entered
         self.screen.blit(self._pause_snapshot, (0, 0))
 
@@ -927,16 +932,33 @@ class Game:
         # ----- SCORE / MISSES
 
         stats = self.rhythm.get_stats()
+        current_score = stats['score']
 
-        score_text = self.font.render(f"Score: {stats['score']}", True, (255, 255, 255))
-        combo_text = self.font.render(f"Combo: {stats['combo']}", True, (255, 200, 0))
-        acc_text = self.font.render(f"Accuracy: {stats['accuracy']:.1f}%", True, (100, 255, 100))
-        rank_text = self.font.render(f"Rank: {stats['rank']}", True, (255, 255, 255))
+        sw, sh = self.screen.get_size()
+        margin_x, margin_y = 20, 20
 
-        self.screen.blit(score_text, (1300, 700))
-        self.screen.blit(combo_text, (1300, 750))
-        self.screen.blit(acc_text, (1300, 800))
-        self.screen.blit(rank_text, (1300, 850))
+        # Spawn a popup when score increases
+        if current_score > self._last_score:
+            delta = current_score - self._last_score
+            ref_h = self._score_font.get_height()
+            self._score_popups.append({
+                "delta": delta,
+                "y": float(sh - margin_y - ref_h - 8),
+                "alpha": 255.0,
+            })
+        self._last_score = current_score
+
+        # Draw and tick popups
+        for p in self._score_popups:
+            surf = self._popup_font.render(f"+{p['delta']}", True, (255, 220, 80))
+            surf.set_alpha(int(p["alpha"]))
+            self.screen.blit(surf, surf.get_rect(bottomright=(sw - margin_x, int(p["y"]))))
+            p["y"]     -= 0.9
+            p["alpha"] -= 4.5
+        self._score_popups = [p for p in self._score_popups if p["alpha"] > 0]
+
+        score_text = self._score_font.render(f"{current_score}", True, (255, 255, 255))
+        self.screen.blit(score_text, score_text.get_rect(bottomright=(sw - margin_x, sh - margin_y)))
 
         # pause button
         self.pause_button.draw(self.screen, time.time())
@@ -948,17 +970,33 @@ class Game:
 
 
     def get_next_word(self) -> str | None:
-        """Get the next word that will be typed after current word completes"""
+        """Get the next word that will be typed after current word completes (display chars only)"""
         if not self.rhythm.beat_map:
             return None
-        
+
+        next_word_text = None
         for i in range(self.rhythm.char_event_idx, len(self.rhythm.beat_map)):
             event = self.rhythm.beat_map[i]
             if event.word_text and event.char_idx == 0 and not event.is_rest:
                 if event.word_text != self.rhythm.current_expected_word():
-                    return event.word_text
-        
-        return None
+                    next_word_text = event.word_text
+                    break
+
+        if next_word_text is None:
+            return None
+
+        # Find the highest char_idx mapped for this next word
+        max_char_idx = -1
+        for i in range(self.rhythm.char_event_idx, len(self.rhythm.beat_map)):
+            ev = self.rhythm.beat_map[i]
+            if ev.is_rest or ev.word_text != next_word_text:
+                continue
+            if ev.char_idx > max_char_idx:
+                max_char_idx = ev.char_idx
+
+        if max_char_idx < 0:
+            return next_word_text
+        return next_word_text[:max_char_idx + 1]
 
     def draw_word_animated(
         self,
@@ -1117,7 +1155,7 @@ class Game:
     def render_timeline(self):
         current_time = time.perf_counter() - self.rhythm.start_time
         
-        current_word = self.rhythm.current_expected_word()
+        current_word = self.rhythm.current_display_word()
         next_word = self.get_next_word()
         
         char_spacing = 60
@@ -1205,13 +1243,10 @@ class Game:
                         (timeline_end_x, timeline_y), 6)
 
         # Draw visual hit marker at the fixed position (no bounce offset)
-        pygame.draw.line(self.screen, (155, 255, 100),
-                        (int(hit_marker_x) - C.HIT_MARKER_X_OFFSET, timeline_y),
-                        (int(hit_marker_x) + C.HIT_MARKER_X_OFFSET, timeline_y), C.HIT_MARKER_WIDTH)
-
-        pygame.draw.line(self.screen, (0, 180, 220),
-                        (int(hit_marker_x), timeline_y - C.HIT_MARKER_Y_OFFSET),
-                        (int(hit_marker_x), timeline_y + C.HIT_MARKER_Y_OFFSET), int(C.HIT_MARKER_WIDTH/2))
+        _hm_rect = self.hitmarker_img.get_rect(
+            center=(int(hit_marker_x), timeline_y)
+        )
+        self.screen.blit(self.hitmarker_img, _hm_rect)
 
         # --- beat grid lines (using beat times from librosa)
         beat_times = self.song.beat_times

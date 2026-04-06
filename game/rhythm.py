@@ -251,6 +251,31 @@ class RhythmManager:
 
         return self.last_word
     
+    def current_display_word(self) -> Optional[str]:
+        """Return only the chars of the current word that were actually mapped to beat events."""
+        word_text = self.current_expected_word()
+        if not word_text:
+            return word_text
+
+        # Find the highest char_idx mapped for this word starting from the current position
+        max_char_idx = -1
+        for i in range(self.char_event_idx, len(self.beat_map)):
+            ev = self.beat_map[i]
+            if ev.is_rest:
+                continue
+            if ev.word_text != word_text:
+                # Stop once we've moved past this word's block
+                if max_char_idx >= 0:
+                    break
+                continue
+            if ev.char_idx > max_char_idx:
+                max_char_idx = ev.char_idx
+
+        if max_char_idx < 0:
+            return word_text  # fallback: show full word if nothing found ahead
+
+        return word_text[:max_char_idx + 1]
+
     def get_upcoming_events(self, lookahead_time: float = 3.0) -> list[M.CharEvent]:
         """
         Get events coming up in the next N seconds (for visualization).
