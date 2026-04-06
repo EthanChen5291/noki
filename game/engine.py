@@ -77,15 +77,35 @@ class Game:
         self.song_path = abs_song_path
 
         assets_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'images')
-        cat_frames_path = os.path.join(assets_path, "cat_frames")
+        # ── noki_bop: pre-decode all frames into pygame surfaces ─────────
+        # Done before the heavy worker thread so frames are ready instantly.
+        import cv2 as _cv2
+        _bop_path = os.path.join(assets_path, "noki_bop.mov")
+        _bop_target_h = 300
+        self._bop_frames: list[pygame.Surface] = []
+        self._bop_fps    = 30.0
+        # noki_bop native BPM: one L/R cycle = 2 beats at 100 BPM = 1.2 s
+        self._bop_native_bpm = 100.0
+        self._bop_surf   = None
 
-        self.cat_frames = [
-            pygame.image.load(os.path.join(cat_frames_path, f)).convert_alpha()
-            for f in sorted(os.listdir(cat_frames_path))
-            if f.endswith(('.png', '.jpg', '.jpeg'))
-        ]
-        self.cat_frame_index = 0
-        self.num_cat_frames = len(self.cat_frames)
+        _pre_cap = _cv2.VideoCapture(_bop_path)
+        if _pre_cap.isOpened():
+            _fps_raw = _pre_cap.get(_cv2.CAP_PROP_FPS)
+            if _fps_raw > 0:
+                self._bop_fps = _fps_raw
+            while True:
+                _ret, _frm = _pre_cap.read()
+                if not _ret:
+                    break
+                _rgb = _cv2.cvtColor(_frm, _cv2.COLOR_BGR2RGB)
+                _fh, _fw = _rgb.shape[:2]
+                _fw_scaled = int(_fw * _bop_target_h / _fh)
+                _s = pygame.surfarray.make_surface(_rgb.transpose(1, 0, 2))
+                _s = pygame.transform.smoothscale(_s, (_fw_scaled, _bop_target_h))
+                self._bop_frames.append(_s)
+        _pre_cap.release()
+
+        self.cat_frame = None  # kept for draw compatibility
 
         timeline_file = os.path.join(assets_path, 'noki_timeline.png')
         self.timeline_img = pygame.image.load(timeline_file).convert_alpha()
@@ -336,37 +356,39 @@ class Game:
             self._exit_to_menu = True
             self.running = False
 
-    def update_cat_animation(self):
-        current_time = time.perf_counter() - self.rhythm.start_time
-        song_time = current_time - self.rhythm.lead_in 
+    def update_cat_animation(self, _dt: float):
+        """Select noki_bop frame, synced to song beat_times.
+        Uses elapsed time from level start during lead-in so animation never freezes."""
+        if not self._bop_frames:
+            return
 
+        n = len(self._bop_frames)
+        elapsed   = time.perf_counter() - self.rhythm.start_time
+        song_time = elapsed - self.rhythm.lead_in
         beat_times = self.song.beat_times
-        if not beat_times or len(beat_times) < 2:
-            loop_beats = 2
-            beat_phase = (current_time / self.rhythm.beat_duration) % loop_beats
-            normalized = beat_phase / loop_beats
-        else:
+
+        if beat_times and len(beat_times) >= 2 and song_time >= beat_times[0]:
+            # inside the song — follow actual beat_times for accurate sync
             current_beat_idx = 0
             for i, bt in enumerate(beat_times):
                 if bt <= song_time:
                     current_beat_idx = i
                 else:
                     break
-
             if current_beat_idx < len(beat_times) - 1:
                 beat_start = beat_times[current_beat_idx]
-                beat_end = beat_times[current_beat_idx + 1]
-                beat_duration = beat_end - beat_start
-                phase_in_beat = (song_time - beat_start) / beat_duration if beat_duration > 0 else 0
+                beat_end   = beat_times[current_beat_idx + 1]
+                phase = (song_time - beat_start) / (beat_end - beat_start)
             else:
-                phase_in_beat = 0
+                phase = 0.0
+            normalized = ((current_beat_idx % 2) + phase) / 2.0
+        else:
+            # lead-in or no beat_times — run at song BPM from level start
+            beat_dur   = 60.0 / self.song.bpm
+            normalized = (elapsed / beat_dur % 2.0) / 2.0
 
-            loop_beats = 2
-            beat_in_loop = (current_beat_idx % loop_beats) + phase_in_beat
-            normalized = beat_in_loop / loop_beats
-
-        self.cat_frame_index = int(normalized * self.num_cat_frames) % self.num_cat_frames
-        self.cat_frame = self.cat_frames[self.cat_frame_index]
+        frame_idx = int(normalized * n) % n
+        self._bop_surf = self._bop_frames[frame_idx]
 
     def _find_drop_note_indices(self) -> dict[int, int]:
         """Find beatmap note indices closest to each drop timestamp.
@@ -815,10 +837,9 @@ class Game:
 
         self.update_shockwaves(dt)
 
-        self.update_cat_animation()
-        if self.cat_frame:
-            cat_scaled = pygame.transform.scale(self.cat_frame, (230, 250))
-            self.screen.blit(cat_scaled, (int(self.cat_current_x), 550))
+        self.update_cat_animation(dt)
+        if self._bop_surf is not None:
+            self.screen.blit(self._bop_surf, (int(self.cat_current_x), 520))
         
         events = pygame.event.get()
         mouse_pos = pygame.mouse.get_pos()

@@ -531,7 +531,7 @@ class TitleScreen:
         self.title_img     = raw_title          # keep original full-res for scaling
         self._title_base_w = target_w
         self._title_base_h = target_h
-        self.title_cx      = sw // 2
+        self.title_cx      = sw // 2 + int(sw * 0.15)
         self.title_cy      = sh // 2 - target_h // 2 + 20
 
         # beat-pulse scale for title
@@ -545,7 +545,7 @@ class TitleScreen:
         btn_size = int(sh * 0.10 * 1.20)       # 20 % larger than before
         self._btn_base = raw_btn                # keep original for smooth scaling
         self._btn_size = btn_size
-        self.btn_cx = sw // 2
+        self.btn_cx = sw // 2 + int(sw * 0.15)
         self.btn_cy = sh // 2 + target_h // 2 + 60
 
         # click animation state
@@ -562,6 +562,45 @@ class TitleScreen:
         # beat tracking
         self._beat_period  = 60.0 / self._BPM   # seconds per beat
         self._last_beat    = -1                  # which beat index last fired
+
+        # ── noki_bop looping video ────────────────────────────────────────
+        # Positioned centered vertically, 1/4 of screen width from left edge
+        _BOP_PATH = os.path.join(self._ASSETS, "noki_bop.mov")
+        self._bop_cap       = None
+        self._bop_fps       = 30.0
+        self._bop_acc       = 0.0
+        self._bop_surf      = None
+        # noki_bop is 100 BPM — loop duration = 1.2s
+        # Scale height to ~1/5 of screen height
+        self._bop_h         = int(sh * 0.40)
+        self._bop_cx        = sw // 4 + int(sw * 0.06)
+        # bottom of bop aligns with bottom of play button
+        _btn_bottom         = self.btn_cy + btn_size // 2
+        self._bop_cy        = _btn_bottom - self._bop_h // 2
+        self._spotlight_surf = None
+        try:
+            import cv2 as _cv2
+            _cap = _cv2.VideoCapture(_BOP_PATH)
+            if _cap.isOpened():
+                _fps = _cap.get(_cv2.CAP_PROP_FPS)
+                if _fps > 0:
+                    self._bop_fps = _fps
+                _fw = _cap.get(_cv2.CAP_PROP_FRAME_WIDTH)
+                _fh = _cap.get(_cv2.CAP_PROP_FRAME_HEIGHT)
+                self._bop_cap = _cap
+
+                # Load spotlight.png: 30% wider than bop, extends 10% screen below bop bottom
+                _bop_w  = int(_fw * self._bop_h / _fh) if _fh > 0 else self._bop_h
+                _spot_w = int(_bop_w * 1.30)
+                _spot_h = int((_btn_bottom + int(sh * 0.10)) * 1.15)   # +15% vertical stretch
+                _raw    = pygame.image.load(
+                    os.path.join(self._ASSETS, "spotlight.png")
+                ).convert_alpha()
+                _spot   = pygame.transform.smoothscale(_raw, (_spot_w, _spot_h))
+                _spot.set_alpha(int(255 * 0.19))
+                self._spotlight_surf = _spot
+        except ImportError:
+            pass
 
     def _btn_hovered(self, mouse_pos) -> bool:
         half = int(self._btn_size * self._scale) // 2
@@ -590,6 +629,24 @@ class TitleScreen:
                 return "play"
 
         else:
+            # ── noki_bop video advance ────────────────────────────────────
+            if self._bop_cap is not None:
+                import cv2 as _cv2
+                self._bop_acc += 1.44 / 60.0
+                frame_dur = 1.0 / self._bop_fps
+                while self._bop_acc >= frame_dur:
+                    self._bop_acc -= frame_dur
+                    ret, frame = self._bop_cap.read()
+                    if not ret:
+                        self._bop_cap.set(_cv2.CAP_PROP_POS_FRAMES, 0)
+                        ret, frame = self._bop_cap.read()
+                    if ret:
+                        frame_rgb = _cv2.cvtColor(frame, _cv2.COLOR_BGR2RGB)
+                        fh, fw = frame_rgb.shape[:2]
+                        sw_f = int(fw * self._bop_h / fh)
+                        surf = pygame.surfarray.make_surface(frame_rgb.transpose(1, 0, 2))
+                        self._bop_surf = pygame.transform.smoothscale(surf, (sw_f, self._bop_h))
+
             # ── beat pulse ────────────────────────────────────────────────
             beat_idx = int(current_time / self._beat_period)
             if beat_idx != self._last_beat:
@@ -610,6 +667,17 @@ class TitleScreen:
         return None
 
     def draw(self, _current_time):
+        # ── noki_bop looping video ────────────────────────────────────────
+        if self._bop_surf is not None:
+            self.screen.blit(self._bop_surf,
+                             self._bop_surf.get_rect(center=(self._bop_cx, self._bop_cy)))
+
+        # ── spotlight on top of bop ───────────────────────────────────────
+        if self._spotlight_surf is not None:
+            _sh = self.screen.get_height()
+            self.screen.blit(self._spotlight_surf,
+                             self._spotlight_surf.get_rect(midbottom=(self._bop_cx, self._bop_cy + self._bop_h // 2 + int(_sh * 0.05))))
+
         # ── beat-scaled title ────────────────────────────────────────────
         tw = max(1, int(self._title_base_w * self._title_scale))
         th = max(1, int(self._title_base_h * self._title_scale))
@@ -716,7 +784,7 @@ class LevelSelect:
             dy = event.pos[1] - self._sb_drag_start_y
             if self._sb_h > 0 and self.max_scroll > 0:
                 self.scroll_offset = self._sb_drag_start_offset + int(
-                    dy * self.max_scroll / self._sb_h
+                    dy * 0.9 * self.max_scroll / self._sb_h
                 )
             self.scroll_offset = max(0, min(self.scroll_offset, self.max_scroll))
 
@@ -834,15 +902,22 @@ class LevelSelect:
             text_y    = vis_y + (btn.rect.h - text_surf.get_height()) // 2
 
             if tw > clip_w:
-                max_off  = tw - clip_w
-                cycle    = _PAUSE + max_off / _SCROLL_SPEED + _PAUSE
-                t        = (current_time + i * 0.4) % cycle  # stagger per row
+                max_off   = tw - clip_w
+                scroll_t  = max_off / _SCROLL_SPEED
+                cycle     = _PAUSE + scroll_t + _PAUSE + scroll_t
+                t         = (current_time + i * 0.4) % cycle
                 if t < _PAUSE:
+                    # pause at start
                     x_off = 0
-                elif t < _PAUSE + max_off / _SCROLL_SPEED:
+                elif t < _PAUSE + scroll_t:
+                    # scroll forward
                     x_off = int((t - _PAUSE) * _SCROLL_SPEED)
-                else:
+                elif t < _PAUSE + scroll_t + _PAUSE:
+                    # pause at end
                     x_off = max_off
+                else:
+                    # scroll back
+                    x_off = int(max_off - (t - _PAUSE - scroll_t - _PAUSE) * _SCROLL_SPEED)
                 draw_x = btn.rect.x + pad - x_off
             else:
                 draw_x = btn.rect.x + (btn.rect.w - tw) // 2
