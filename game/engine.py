@@ -572,6 +572,8 @@ class Game:
 
     def _apply_bounce_grace_periods(self):
         """Mark beatmap notes within 2 beats of each bounce event as rests.
+        If any char of a word falls in the grace window, blank the entire word
+        so the player never gets a partial word with some chars active and some rests.
         Does not blank notes inside dual-side sections."""
         if not self.bounce_events:
             return
@@ -580,21 +582,28 @@ class Game:
         lead_in = self.rhythm.lead_in
         dual_ranges = [(ds.start_time, ds.end_time) for ds in self.dual_side_sections]
 
+        # Collect (word_text, section) keys that have at least one char in any grace window
+        tainted_words: set[tuple[str, int]] = set()
         for event in self.bounce_events:
-            bounce_time = event.time + lead_in  # convert to beatmap timeline
+            bounce_time = event.time + lead_in
             for note in self.rhythm.beat_map:
                 if note.is_rest or not note.char:
                     continue
-                # Don't blank notes inside dual-side sections
                 note_song_time = note.timestamp - lead_in
                 in_dual = any(ds <= note_song_time < de for ds, de in dual_ranges)
                 if in_dual:
                     continue
                 dt = note.timestamp - bounce_time
-                # Grace window: 1 beat before, 2 beats after the bounce
                 if -self.beat_duration <= dt <= grace_duration:
-                    note.is_rest = True
-                    note.char = ""
+                    tainted_words.add((note.word_text, note.section))
+
+        # Blank all chars that belong to any tainted word
+        for note in self.rhythm.beat_map:
+            if note.is_rest or not note.char:
+                continue
+            if (note.word_text, note.section) in tainted_words:
+                note.is_rest = True
+                note.char = ""
 
     def update_bounce_state(self, current_time: float, dt: float):
         """Update bounce mode: toggle direction when crossing bounce obstacles."""

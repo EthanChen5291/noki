@@ -51,6 +51,7 @@ SONG_NAMES = [
     "Decisive Battle.mp3", 
     "Glitch in your Heart.mp3", 
     "Disturbing the Peace.mp3", 
+    "Catch Catch.mp3", 
     "Toby Fox - Finale.mp3",
     "ICARIUS.mp3",
     "Fluffing A Duck.mp3",

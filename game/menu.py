@@ -1174,10 +1174,13 @@ class LevelMenu:
     Left half: huge difficulty label + ◀ ▶ arrows.
     Right half: huge best-score number.
     Black bg, white border.
+    Lerps in from the source button rect and back out on close.
     """
-    _BORD = 2
+    _BORD     = 2
+    _ANIM_DUR = 0.13   # seconds for enter / exit
 
-    def __init__(self, screen, song_idx, song_name, initial_diff_idx, scores):
+    def __init__(self, screen, song_idx, song_name, initial_diff_idx, scores,
+                 origin_rect=None):
         self.screen    = screen
         self.song_idx  = song_idx
         self.song_name = song_name
@@ -1192,42 +1195,34 @@ class LevelMenu:
         py = (sh - ph) // 2
         self.rect = pygame.Rect(px, py, pw, ph)
 
-        # Layout constants
+        # Layout constants (relative to final rect)
         self._px, self._py, self._pw, self._ph = px, py, pw, ph
-        _pad         = max(24, pw // 30)
-        self._pad    = _pad
-        # horizontal midpoint splits left (difficulty) / right (score)
-        self._mid_x  = px + pw // 2
-        # top strip height for title
-        self._top_h  = int(ph * 0.20)
-        # bottom strip height for play button
-        self._bot_h  = int(ph * 0.28)
-        # body band between strips
+        _pad              = max(24, pw // 30)
+        self._pad         = _pad
+        self._mid_x       = px + pw // 2
+        self._top_h       = int(ph * 0.20)
+        self._bot_h       = int(ph * 0.28)
         self._body_top    = py + self._top_h
         self._body_bottom = py + ph - self._bot_h
         self._body_cy     = (self._body_top + self._body_bottom) // 2
 
         # Fonts
         _title_sz = max(28, ph // 10)
-        _big_sz   = max(64, ph // 4)      # difficulty + score
-        _sub_sz   = max(20, ph // 18)     # "BEST" label
+        _big_sz   = max(64, ph // 4)
+        _sub_sz   = max(20, ph // 18)
         _btn_sz   = max(30, ph // 8)
         self._title_font = pygame.font.Font(_FONT, _title_sz)
         self._big_font   = pygame.font.Font(_FONT, _big_sz)
         self._sub_font   = pygame.font.Font(_FONT, _sub_sz)
         self._btn_font   = pygame.font.Font(_FONT, _btn_sz)
 
-        # DifficultySelector — only used for state & arrow-click logic.
-        # We draw it ourselves at the right size.
         _dummy_font = pygame.font.Font(_FONT, _sub_sz)
-        self._diff = DifficultySelector(0, 0, _dummy_font)   # cx/cy unused
+        self._diff = DifficultySelector(0, 0, _dummy_font)
         self._diff.selected = max(0, min(2, initial_diff_idx))
 
-        # Arrow hit rects (set each frame in draw)
         self._left_arrow_rect:  pygame.Rect | None = None
         self._right_arrow_rect: pygame.Rect | None = None
 
-        # Play button — centered in bottom strip, wide and tall
         btn_w = int(pw * 0.52)
         btn_h = int(self._bot_h * 0.62)
         self._play_rect = pygame.Rect(
@@ -1238,7 +1233,6 @@ class LevelMenu:
         self._play_hovered = False
         self._play_scale   = 1.0
 
-        # Close × — top-right corner
         close_sz = 30
         self._close_rect = pygame.Rect(
             px + pw - _pad - close_sz,
@@ -1247,30 +1241,64 @@ class LevelMenu:
         )
         self._close_hovered = False
 
-        # Dim overlay
+        # Dim overlay surface (alpha set dynamically)
         self._overlay = pygame.Surface((sw, sh), pygame.SRCALPHA)
-        self._overlay.fill((0, 0, 0, 155))
+
+        # ── animation state ──────────────────────────────────────────────────
+        # Origin: the button rect on screen the popup expands from/collapses to
+        self._origin = origin_rect.copy() if origin_rect else pygame.Rect(
+            px + pw // 2, py + ph // 2, 0, 0
+        )
+        self._anim_start  = time.time()
+        self._closing     = False
+        self._close_start = 0.0
 
     # ── helpers ─────────────────────────────────────────────────────────────
 
     def _top_score(self) -> int | None:
         return self._scores.get(self.song_name, {}).get(self._diff.difficulty)
 
+    @staticmethod
+    def _lerp_rect(r1: pygame.Rect, r2: pygame.Rect, t: float) -> pygame.Rect:
+        return pygame.Rect(
+            int(r1.x + (r2.x - r1.x) * t),
+            int(r1.y + (r2.y - r1.y) * t),
+            max(1, int(r1.w + (r2.w - r1.w) * t)),
+            max(1, int(r1.h + (r2.h - r1.h) * t)),
+        )
+
+    def _anim_t(self, current_time: float) -> float:
+        """0 → 1 while opening; 1 → 0 while closing. Uses ease-out both ways."""
+        if self._closing:
+            raw = (current_time - self._close_start) / self._ANIM_DUR
+            t   = min(1.0, raw)
+            return 1.0 - t * t      # ease-in collapse
+        else:
+            raw = (current_time - self._anim_start) / self._ANIM_DUR
+            t   = min(1.0, raw)
+            return 1.0 - (1.0 - t) ** 3   # ease-out expand
+
     # ── public API ──────────────────────────────────────────────────────────
 
-    def update(self, mouse_pos, mouse_clicked, _current_time):
+    def update(self, mouse_pos, mouse_clicked, current_time):
         """Returns 'play', 'close', or None."""
+        # Finish close animation then signal done
+        if self._closing:
+            if (current_time - self._close_start) >= self._ANIM_DUR:
+                return "close"
+            return None
+
         self._play_hovered  = self._play_rect.collidepoint(mouse_pos)
         self._close_hovered = self._close_rect.collidepoint(mouse_pos)
 
         if mouse_clicked:
             if self._play_hovered:
                 return "play"
-            if self._close_hovered:
-                return "close"
-            if not self.rect.collidepoint(mouse_pos):
-                return "close"
-            # Arrow clicks (rects set by last draw())
+            if self._close_hovered or not self.rect.collidepoint(mouse_pos):
+                # Begin close animation
+                self._closing     = True
+                self._close_start = current_time
+                return None
             if self._left_arrow_rect and self._left_arrow_rect.collidepoint(mouse_pos):
                 if self._diff.selected > 0:
                     self._diff.selected -= 1
@@ -1291,94 +1319,98 @@ class LevelMenu:
             pts = [(cx + hw, cy), (cx - hw, cy - hh), (cx - hw, cy + hh)]
         pygame.draw.polygon(screen, color, pts)
 
-    def draw(self, _current_time):
-        px, py, pw, ph = self._px, self._py, self._pw, self._ph
+    def draw(self, current_time):
+        at = self._anim_t(current_time)          # 0 → 1 (open) or 1 → 0 (close)
+        cur = self._lerp_rect(self._origin, self.rect, at)
         pad = self._pad
 
-        # dim overlay + panel
+        # overlay fades with animation
+        self._overlay.fill((0, 0, 0, int(155 * at)))
         self.screen.blit(self._overlay, (0, 0))
-        pygame.draw.rect(self.screen, (8, 8, 14),      self.rect, border_radius=14)
-        pygame.draw.rect(self.screen, (255, 255, 255),  self.rect, self._BORD, border_radius=14)
 
+        # panel shell (always drawn, even mid-animation)
+        pygame.draw.rect(self.screen, (8, 8, 14),     cur, border_radius=14)
+        pygame.draw.rect(self.screen, (255, 255, 255), cur, self._BORD, border_radius=14)
+
+        # content only appears once the box is mostly open
+        if at < 0.55:
+            return
+
+        content_a = min(255, int(255 * (at - 0.55) / 0.45))
+
+        def _blit_a(surf, rect):
+            surf = surf.copy()
+            surf.set_alpha(content_a)
+            self.screen.blit(surf, rect)
+
+        # fixed geometry drawn relative to the FINAL rect (self._px etc.)
+        fpx, fpy, fpw = self._px, self._py, self._pw
         diff_col = DifficultySelector.COLORS[self._diff.selected]
 
-        # ── song title (top strip) ───────────────────────────────────────────
+        # ── song title ───────────────────────────────────────────────────────
         display_name = os.path.splitext(self.song_name)[0]
         name_surf = self._title_font.render(display_name, True, (220, 220, 220))
-        max_title_w = pw - pad * 2 - 44
+        max_title_w = fpw - pad * 2 - 44
         if name_surf.get_width() > max_title_w:
             clipped = pygame.Surface((max_title_w, name_surf.get_height()), pygame.SRCALPHA)
             clipped.blit(name_surf, (0, 0))
             name_surf = clipped
-        title_cy = py + self._top_h // 2
-        self.screen.blit(name_surf, name_surf.get_rect(center=(px + pw // 2, title_cy)))
+        _blit_a(name_surf, name_surf.get_rect(center=(fpx + fpw // 2, fpy + self._top_h // 2)))
 
-        # thin rule below title
-        rule_y = py + self._top_h - 1
-        pygame.draw.line(self.screen, (50, 50, 60), (px + pad, rule_y), (px + pw - pad, rule_y), 1)
+        rule_y = fpy + self._top_h - 1
+        pygame.draw.line(self.screen, (int(50 * at), int(50 * at), int(60 * at)),
+                         (fpx + pad, rule_y), (fpx + fpw - pad, rule_y), 1)
 
-        # ── close × ─────────────────────────────────────────────────────────
+        # ── close × ──────────────────────────────────────────────────────────
         xc = (255, 80, 80) if self._close_hovered else (120, 120, 130)
-        cx, cy = self._close_rect.center
+        xc = tuple(int(c * at) for c in xc)
+        ccx, ccy = self._close_rect.center
         sz = 10
-        pygame.draw.line(self.screen, xc, (cx - sz, cy - sz), (cx + sz, cy + sz), 2)
-        pygame.draw.line(self.screen, xc, (cx + sz, cy - sz), (cx - sz, cy + sz), 2)
+        pygame.draw.line(self.screen, xc, (ccx - sz, ccy - sz), (ccx + sz, ccy + sz), 2)
+        pygame.draw.line(self.screen, xc, (ccx + sz, ccy - sz), (ccx - sz, ccy + sz), 2)
 
-        # ── vertical divider ────────────────────────────────────────────────
-        pygame.draw.line(self.screen, (45, 45, 55),
+        # ── vertical divider ─────────────────────────────────────────────────
+        pygame.draw.line(self.screen, (int(45 * at), int(45 * at), int(55 * at)),
                          (self._mid_x, self._body_top + pad // 2),
                          (self._mid_x, self._body_bottom - pad // 2), 1)
 
-        # ── LEFT HALF: huge difficulty label + arrows ────────────────────────
-        left_cx = px + pw // 4
-
-        label = DifficultySelector.LABELS[self._diff.selected].upper()
+        # ── LEFT HALF: difficulty + arrows ───────────────────────────────────
+        left_cx = fpx + fpw // 4
+        label     = DifficultySelector.LABELS[self._diff.selected].upper()
         diff_surf = self._big_font.render(label, True, diff_col)
-        # vertically center in body, shifted up slightly to leave room for arrows
-        diff_y = self._body_cy - int(self._ph * 0.06)
-        self.screen.blit(diff_surf, diff_surf.get_rect(center=(left_cx, diff_y)))
+        diff_y    = self._body_cy - int(self._ph * 0.06)
+        _blit_a(diff_surf, diff_surf.get_rect(center=(left_cx, diff_y)))
 
-        # arrows below the label
-        arrow_y  = diff_y + diff_surf.get_height() // 2 + 28
+        arrow_y   = diff_y + diff_surf.get_height() // 2 + 28
         arrow_gap = 44
-        a_color  = (180, 180, 180)
+        a_col     = tuple(int(180 * at) for _ in range(3))
 
         if self._diff.selected > 0:
-            self._draw_tri(self.screen, a_color, left_cx - arrow_gap, arrow_y, "left")
-            self._left_arrow_rect = pygame.Rect(
-                left_cx - arrow_gap - 22, arrow_y - 18, 44, 36
-            )
+            self._draw_tri(self.screen, a_col, left_cx - arrow_gap, arrow_y, "left")
+            self._left_arrow_rect = pygame.Rect(left_cx - arrow_gap - 22, arrow_y - 18, 44, 36)
         else:
             self._left_arrow_rect = None
 
         if self._diff.selected < 2:
-            self._draw_tri(self.screen, a_color, left_cx + arrow_gap, arrow_y, "right")
-            self._right_arrow_rect = pygame.Rect(
-                left_cx + arrow_gap - 22, arrow_y - 18, 44, 36
-            )
+            self._draw_tri(self.screen, a_col, left_cx + arrow_gap, arrow_y, "right")
+            self._right_arrow_rect = pygame.Rect(left_cx + arrow_gap - 22, arrow_y - 18, 44, 36)
         else:
             self._right_arrow_rect = None
 
-        # ── RIGHT HALF: "BEST" + huge score ─────────────────────────────────
-        right_cx = px + pw * 3 // 4
-
+        # ── RIGHT HALF: Best + score ──────────────────────────────────────────
+        right_cx = fpx + fpw * 3 // 4
         sub_surf = self._sub_font.render("Best", True, (110, 170, 230))
-        sub_y    = self._body_cy - int(self._ph * 0.10)
-        self.screen.blit(sub_surf, sub_surf.get_rect(center=(right_cx, sub_y)))
+        _blit_a(sub_surf, sub_surf.get_rect(center=(right_cx, self._body_cy - int(self._ph * 0.10))))
 
-        top   = self._top_score()
-        s_txt = f"{top:,}" if top is not None else "- -"
-        s_surf = self._big_font.render(s_txt, True, (255, 255, 255))
-        self.screen.blit(s_surf, s_surf.get_rect(
-            center=(right_cx, self._body_cy + int(self._ph * 0.06))
-        ))
+        top    = self._top_score()
+        s_surf = self._big_font.render(f"{top:,}" if top is not None else "- -", True, (255, 255, 255))
+        _blit_a(s_surf, s_surf.get_rect(center=(right_cx, self._body_cy + int(self._ph * 0.06))))
 
-        # ── thin rule above play button ──────────────────────────────────────
-        rule2_y = self._body_bottom
-        pygame.draw.line(self.screen, (50, 50, 60),
-                         (px + pad, rule2_y), (px + pw - pad, rule2_y), 1)
+        # ── rule above play button ────────────────────────────────────────────
+        pygame.draw.line(self.screen, (int(50 * at), int(50 * at), int(60 * at)),
+                         (fpx + pad, self._body_bottom), (fpx + fpw - pad, self._body_bottom), 1)
 
-        # ── PLAY button (bottom strip) ───────────────────────────────────────
+        # ── PLAY button ───────────────────────────────────────────────────────
         bw = max(1, int(self._play_rect.w * self._play_scale))
         bh = max(1, int(self._play_rect.h * self._play_scale))
         br = pygame.Rect(
@@ -1387,10 +1419,11 @@ class LevelMenu:
             bw, bh,
         )
         btn_col = (255, 255, 255) if self._play_hovered else (190, 190, 210)
+        btn_col_a = tuple(int(c * at) for c in btn_col)
         pygame.draw.rect(self.screen, (0, 0, 0), br, border_radius=8)
-        pygame.draw.rect(self.screen, btn_col,   br, 2, border_radius=8)
+        pygame.draw.rect(self.screen, btn_col_a,  br, 2, border_radius=8)
         p_surf = self._btn_font.render("PLAY", True, btn_col)
-        self.screen.blit(p_surf, p_surf.get_rect(center=br.center))
+        _blit_a(p_surf, p_surf.get_rect(center=br.center))
 
 
 # ─── File upload screen ───────────────────────────────────────────────────────
@@ -1789,9 +1822,12 @@ class MenuManager:
                     self._start_transition("upload", origin)
                 elif action == "select":
                     diff_idx = self.level_select.difficulty_selectors[idx].selected
+                    _btn     = self.level_select.level_buttons[idx]
+                    _vis_y   = _btn.rect.y - self.level_select.scroll_offset
+                    _origin  = pygame.Rect(_btn.rect.x, _vis_y, _btn.rect.w, _btn.rect.h)
                     self._level_menu = LevelMenu(
                         self.screen, idx, self.song_names[idx],
-                        diff_idx, self._scores,
+                        diff_idx, self._scores, _origin,
                     )
 
             elif self.state == "upload":
