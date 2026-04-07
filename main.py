@@ -7,7 +7,8 @@ from game.music import MusicManager
 # add a menu UI -> whenever players click on a level, they see a menu with the difficulty and top score and play button. it's a squarish-rectangle (longer horizontally) with black bg and white borders
 # in the actual levels screen (with all the levels), don't show the difficulty (that'll be toggles in the individual level menus) and just show the rank of the player's best score
 
-# ensure that the main title cat + main title + play button play at 125 bpm after play button is pressed and the player goes back to main title screen
+# dual mode section -> no notes
+
 
 # -- underscore for words not showing up on some words
 # -- ghost letters (letters progressing without any input/circles) in ping pong mode

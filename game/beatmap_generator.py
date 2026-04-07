@@ -456,7 +456,7 @@ def generate_beatmap(
     )
     #events = add_rhythm_variations(events, song)
 
-    events = deduplicate_events(events, beat_duration, min_spacing=0.2)
+    events = deduplicate_events(events, beat_duration, min_spacing=profile.min_char_spacing)
 
     #ensure beatmap doesn't extend past song duration
     # and pad with a blank measure of rest at the end so the last word

@@ -109,6 +109,15 @@ class Game:
         self.timeline_img = pygame.image.load(timeline_file).convert_alpha()
         self.timeline_img = pygame.transform.scale(self.timeline_img, (1920, 200))
 
+        def _scale_to_height(surf, h):
+            w0, h0 = surf.get_size()
+            return pygame.transform.smoothscale(surf, (max(1, int(w0 * h / h0)), h))
+
+        self._measureline_img = _scale_to_height(
+            pygame.image.load(os.path.join(assets_path, 'measureline.png')).convert_alpha(), 100)
+        self._beatline_img = _scale_to_height(
+            pygame.image.load(os.path.join(assets_path, 'beatline.png')).convert_alpha(), 60)
+
         _hm_w = 2 * abs(C.HIT_MARKER_X_OFFSET)
         _hm_h = 2 * abs(C.HIT_MARKER_Y_OFFSET)
         self.hitmarker_img = pygame.transform.smoothscale(
@@ -1263,17 +1272,6 @@ class Game:
         beat_times = self.song.beat_times
         lead_in = self.rhythm.lead_in
 
-        fade_range = self.word_dual_y - self.word_normal_y
-        if fade_range > 0:
-            fade_progress = (self.word_current_y - self.word_normal_y) / fade_range
-            fade_progress = max(0.0, min(1.0, fade_progress))  # clamp 0-1
-        else:
-            fade_progress = 0.0
-
-        measure_brightness = int(255 * (1 - fade_progress * 0.85))
-        beat_brightness = int(100 * (1 - fade_progress * 0.75))
-        measure_line_color = (measure_brightness, measure_brightness, measure_brightness)
-        beat_line_color = (beat_brightness, beat_brightness, beat_brightness)
 
         for i, beat_time in enumerate(beat_times):
             t = beat_time + lead_in
@@ -1286,11 +1284,11 @@ class Game:
 
             if timeline_start_x <= x <= timeline_end_x:
                 if i % 4 == 0:
-                    pygame.draw.line(self.screen, measure_line_color,
-                                   (x, timeline_y - 50), (x, timeline_y + 50), 4)
+                    self.screen.blit(self._measureline_img,
+                                     self._measureline_img.get_rect(center=(int(x), timeline_y)))
                 else:
-                    pygame.draw.line(self.screen, beat_line_color,
-                                   (x, timeline_y - 30), (x, timeline_y + 30), 2)
+                    self.screen.blit(self._beatline_img,
+                                     self._beatline_img.get_rect(center=(int(x), timeline_y)))
 
         # --- draw dual-side mode indicators
         if self.dual_side_visuals_active:
