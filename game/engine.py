@@ -960,13 +960,13 @@ class Game:
             for key in self.input.typed_chars:
                 if self.used_current_char:
                     continue
-                
+
                 expected = self.rhythm.current_expected_char()
                 if expected is None:
                     break
 
                 result = self.rhythm.check_input(key)
-                
+
                 if result['hit']:
                     judgment = result['judgment']
                     combo = result['combo']
@@ -978,7 +978,9 @@ class Game:
                         int(self.hit_marker_current_x), 380
                     )
 
-                    if judgment == 'perfect':
+                    if judgment == 'hold_started':
+                        self.show_message("HOLD...", 0.5)
+                    elif judgment == 'perfect':
                         self.show_message(f"PERFECT! ×{combo}", 0.8)
                     elif judgment == 'good':
                         self.show_message(f"Good ×{combo}", 0.8)
@@ -1000,6 +1002,28 @@ class Game:
 
                     self.misses = self.rhythm.miss_count
                     self.used_current_char = True
+
+        # Handle KEYUP for hold notes
+        if self.input.released_chars:
+            for rel_char in self.input.released_chars:
+                hold_result = self.rhythm.on_key_release(rel_char)
+                if hold_result:
+                    if hold_result['hit']:
+                        j = hold_result['judgment']
+                        combo = hold_result['combo']
+                        if 'perfect' in j:
+                            self.show_message(f"HOLD PERFECT! ×{combo}", 1.0)
+                        elif 'good' in j:
+                            self.show_message(f"HOLD Good ×{combo}", 1.0)
+                        else:
+                            self.show_message(f"HOLD OK ×{combo}", 1.0)
+                        self.trigger_hit_ripple(int(self.hit_marker_current_x), 380)
+                        self.score = self.rhythm.get_score()
+                    else:
+                        self.show_message("Hold broken!", 0.8)
+                        self._timeline_flash = 1.0
+                        self._timeline_shake_offset = 6.0
+                        self.misses = self.rhythm.miss_count
 
         self.render_timeline()
         
@@ -1469,6 +1493,30 @@ class Game:
                             color = C.MISSED_COLOR
                         else:
                             color = C.COLOR
+
+                        # Draw hold note body (rounded rect) before the circle
+                        if event.hold_duration > 0 and not is_missed:
+                            hold_px = event.hold_duration * self.scroll_speed
+                            hold_rect_x = int(marker_x)
+                            hold_rect_y = timeline_y - radius
+                            hold_rect_w = int(hold_px)
+                            hold_rect_h = radius * 2
+                            # Clamp to timeline bounds
+                            if hold_rect_x + hold_rect_w > timeline_end_x:
+                                hold_rect_w = timeline_end_x - hold_rect_x
+
+                            if hold_rect_w > 0:
+                                hold_surf = pygame.Surface((hold_rect_w, hold_rect_h), pygame.SRCALPHA)
+                                # Golden hold body
+                                is_active_hold = (self.rhythm._active_hold is event)
+                                if is_active_hold:
+                                    hold_color = (255, 220, 60, 200)
+                                else:
+                                    hold_color = (255, 200, 40, 140)
+                                pygame.draw.rect(hold_surf, hold_color,
+                                                 (0, 0, hold_rect_w, hold_rect_h),
+                                                 border_radius=radius)
+                                self.screen.blit(hold_surf, (hold_rect_x, hold_rect_y))
 
                         # Draw the main note circle
                         pygame.draw.circle(

@@ -1,8 +1,9 @@
 import random
 from typing import Optional
 from analysis.audio_analysis import (
-    analyze_song_intensity, 
-    get_sb_info
+    analyze_song_intensity,
+    get_sb_info,
+    detect_hold_regions,
 )
 from . import constants as C
 from . import models as M
@@ -159,6 +160,7 @@ def assign_words_to_slots(
     beat_duration: float,
     intensity_profile: Optional[M.IntensityProfile] = None,
     dual_side_sections: Optional[list[M.DualSideSection]] = None,
+    hold_regions: Optional[list[tuple[float, float]]] = None,
     target_cps: float = C.TARGET_CPS,
     cps_tolerance: float = C.CPS_TOLERANCE,
 ) -> list[M.CharEvent]:
@@ -257,6 +259,21 @@ def assign_words_to_slots(
                         from_left = (char_idx % 2 == 1)
                         break
 
+            # Check if this slot falls within a detected hold region
+            hold_dur = 0.0
+            if hold_regions:
+                next_slot_time = (
+                    selected_slots[char_idx + 1].time
+                    if char_idx + 1 < chars_to_place
+                    else float('inf')
+                )
+                for hr_start, hr_dur in hold_regions:
+                    if abs(slot.time - hr_start) <= beat_duration * 0.5:
+                        # Cap hold so it doesn't bleed into next char (leave 150ms gap)
+                        max_dur = max(0.0, next_slot_time - slot.time - 0.15)
+                        hold_dur = min(hr_dur, max_dur)
+                        break
+
             events.append(M.CharEvent(
                 char=char,
                 timestamp=slot.time,
@@ -265,7 +282,8 @@ def assign_words_to_slots(
                 beat_position=slot.beat_position,
                 section=section_idx,
                 is_rest=False,
-                from_left=from_left
+                from_left=from_left,
+                hold_duration=hold_dur,
             ))
             slot.is_filled = True
 
@@ -449,9 +467,17 @@ def generate_beatmap(
             measure_sorted = sorted(measure, key=lambda s: (-s.priority, s.time))
             measures[i] = sorted(measure_sorted[:C.MAX_SLOTS_PER_MEASURE], key=lambda s: s.time)
 
+    # Detect hold regions from audio
+    hold_regions: list[tuple[float, float]] = []
+    if song.file_path:
+        path = C._to_abs_path(song.file_path)
+        if path:
+            hold_regions = detect_hold_regions(path, song.beat_times, song.bpm)
+
     word_bank = get_words_with_rhythm_info(word_list, beat_duration, target_cps=profile.target_cps)
     events = assign_words_to_slots(
         measures, word_bank, beat_duration, intensity_profile, dual_side_sections,
+        hold_regions=hold_regions,
         target_cps=profile.target_cps, cps_tolerance=profile.cps_tolerance,
     )
     #events = add_rhythm_variations(events, song)

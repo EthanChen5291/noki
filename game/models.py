@@ -117,6 +117,7 @@ class CharEvent:
     is_rest: bool = False
     hit: bool = False
     from_left: bool = False  # True = note comes from left side (dual-side mode)
+    hold_duration: float = 0.0  # > 0 = hold note; player must hold for this many seconds
 
 # --- engine 
 

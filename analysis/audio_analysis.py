@@ -890,6 +890,97 @@ def detect_dual_side_sections(
 
 
 
+def detect_hold_regions(
+    audio_path: str,
+    beat_times: list[float],
+    bpm: float,
+    min_hold_secs: float = 0.30,
+    max_hold_secs: float = 2.0,
+) -> list[tuple[float, float]]:
+    """
+    Detect regions where a note is sustained (flat amplitude after an onset).
+
+    Algorithm:
+    1. Compute RMS energy in 50ms frames (25ms hop).
+    2. At each detected onset, check if RMS stays within ±12% of its peak
+       for at least min_hold_secs (amplitude flatness).
+    3. End the hold when RMS drops to ≤ 60% of peak (≈ -4.5 dB decay).
+    4. Snap hold duration to the nearest 0.5 beats.
+
+    Returns list of (onset_time, snapped_hold_duration) tuples.
+    """
+    if not beat_times or bpm <= 0:
+        return []
+
+    y, sr = librosa.load(audio_path, sr=None)
+
+    # RMS energy frames (50ms frames, 25ms hop)
+    hop_length = max(1, int(sr * 0.025))
+    frame_length = hop_length * 2
+    rms = librosa.feature.rms(y=y, frame_length=frame_length, hop_length=hop_length)[0]
+    rms_times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=hop_length)
+
+    # Onset detection
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+    onset_frames = librosa.onset.onset_detect(y=y, sr=sr, onset_envelope=onset_env, backtrack=True)
+    onset_times_arr = librosa.frames_to_time(onset_frames, sr=sr)
+
+    beat_duration = 60.0 / bpm
+    hold_regions: list[tuple[float, float]] = []
+    min_gap_between_holds = beat_duration  # holds must be at least 1 beat apart
+
+    last_hold_end = -float('inf')
+
+    for onset_t in onset_times_arr:
+        if onset_t < last_hold_end + min_gap_between_holds:
+            continue
+
+        # Start index: first RMS frame at or after the onset
+        start_idx = int(np.searchsorted(rms_times, onset_t))
+        if start_idx >= len(rms) - 4:
+            continue
+
+        # Reference amplitude: max RMS in first ~75ms after onset
+        ref_window = max(1, int(0.075 / 0.025))  # 3 frames = 75ms
+        ref_amp = float(np.max(rms[start_idx: start_idx + ref_window]))
+        if ref_amp < 1e-5:
+            continue
+
+        # Amplitude thresholds
+        end_threshold = ref_amp * 0.60   # -4.5 dB decay = end of hold
+        variance_threshold = 0.25        # std / ref_amp must stay below this
+
+        # Find how long amplitude stays sustained
+        max_end_idx = int(np.searchsorted(rms_times, onset_t + max_hold_secs))
+        max_end_idx = min(max_end_idx, len(rms) - 1)
+
+        sustained_end_idx = start_idx
+        for j in range(start_idx + 1, max_end_idx + 1):
+            if rms[j] < end_threshold:
+                break
+            # rolling std check over last ~75ms (3 frames)
+            window_slice = rms[max(start_idx, j - 2): j + 1]
+            if len(window_slice) >= 2:
+                std_ratio = float(np.std(window_slice)) / (ref_amp + 1e-8)
+                if std_ratio > variance_threshold:
+                    break
+            sustained_end_idx = j
+
+        raw_duration = rms_times[sustained_end_idx] - onset_t
+        if raw_duration < min_hold_secs:
+            continue
+
+        # Snap hold duration to nearest 0.5 beat, minimum 0.5 beat
+        beats = raw_duration / beat_duration
+        snapped_beats = max(0.5, round(beats * 2) / 2)
+        snapped_dur = snapped_beats * beat_duration
+
+        hold_regions.append((float(onset_t), float(snapped_dur)))
+        last_hold_end = onset_t + snapped_dur
+
+    return hold_regions
+
+
 def get_beat_onset_strengths(
     audio_path: str,
     aligned_beat_times: list[float],

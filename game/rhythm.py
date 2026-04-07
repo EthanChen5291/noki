@@ -45,7 +45,8 @@ class RhythmManager:
                 beat_position=e.beat_position,
                 section=e.section,
                 is_rest=e.is_rest,
-                hit=e.hit
+                hit=e.hit,
+                hold_duration=e.hold_duration,
             )
             for e in beat_map
         ]
@@ -63,9 +64,18 @@ class RhythmManager:
         self.max_combo = 0
         self.perfect_hits = 0
         self.good_hits = 0
+        self.hold_perfect_hits = 0
+        self.hold_good_hits = 0
         self.miss_count = 0
 
         self.playable_events = [e for e in self.beat_map if not e.is_rest]
+
+        # hold note tracking
+        self._active_hold: Optional[M.CharEvent] = None
+        self._hold_press_time: float = 0.0
+        self._hold_judgment: str = 'ok'
+        # grace: player may release this fraction before the full duration and still score
+        self._hold_release_grace = 0.12  # 12% early-release tolerance
 
         self._setup_timing_windows()
     
@@ -83,21 +93,29 @@ class RhythmManager:
         """Advance through the beatmap based on elapsed time"""
         if self.is_finished():
             return
-        
+
         elapsed = time.perf_counter() - self.start_time
-        
+
+        # Auto-complete a hold if player held long enough without releasing
+        if self._active_hold is not None:
+            held_secs = elapsed - self._hold_press_time
+            required = self._active_hold.hold_duration * (1.0 - self._hold_release_grace)
+            if held_secs >= required:
+                self._complete_hold(self._hold_judgment)
+            return  # while holding, don't advance past the hold note
+
         while self.char_event_idx < len(self.beat_map):
             current_event = self.beat_map[self.char_event_idx]
-            
+
             if current_event.is_rest:
                 if elapsed >= current_event.timestamp:
                     self.char_event_idx += 1
                     continue
                 else:
                     break
-            
+
             miss_threshold = current_event.timestamp + self.timing_windows['ok']
-            
+
             if elapsed > miss_threshold:
                 self._register_miss()
                 self.char_event_idx += 1
@@ -108,42 +126,97 @@ class RhythmManager:
         """
         Check if typed character matches current expected character.
         Returns judgment info like modern rhythm games.
-        
+
+        For hold notes, returns judgment='hold_started' and defers scoring to on_key_release().
         Returns:
             dict with keys: 'hit', 'judgment', 'time_diff', 'combo'
         """
         if self.is_finished():
             return {'hit': False, 'judgment': 'miss', 'time_diff': 0, 'combo': self.combo}
-        
+
+        # If a hold is currently active, ignore further input until it resolves
+        if self._active_hold is not None:
+            return {'hit': False, 'judgment': 'miss', 'time_diff': 0, 'combo': self.combo}
+
         current_event = self.current_event()
         if not current_event or current_event.is_rest:
             return {'hit': False, 'judgment': 'miss', 'time_diff': 0, 'combo': self.combo}
-        
+
         expected_char = current_event.char
-        
+
         if typed_char != expected_char:
             self._register_miss()
             return {'hit': False, 'judgment': 'wrong', 'time_diff': 0, 'combo': 0}
-        
+
         elapsed = time.perf_counter() - self.start_time
         time_diff = abs(elapsed - current_event.timestamp)
-        
+
         judgment = self._get_judgment(time_diff)
-        
+
         if judgment == 'miss':
             self._register_miss()
             return {'hit': False, 'judgment': 'miss', 'time_diff': time_diff, 'combo': 0}
-        
+
+        # Hold note: start tracking — score is given on release
+        if current_event.hold_duration > 0:
+            self._active_hold = current_event
+            self._hold_press_time = elapsed
+            self._hold_judgment = judgment
+            current_event.hit = True
+            self.char_event_idx += 1
+            return {
+                'hit': True,
+                'judgment': 'hold_started',
+                'time_diff': time_diff,
+                'combo': self.combo,
+                'is_word_complete': False,
+            }
+
         self._register_hit(judgment)
         current_event.hit = True
         self.char_event_idx += 1
-        
+
         return {
             'hit': True,
             'judgment': judgment,
             'time_diff': time_diff,
             'combo': self.combo,
             'is_word_complete': self._is_word_complete()
+        }
+
+    def on_key_release(self, released_char: str) -> dict:
+        """
+        Called when a key is released. If a hold note is active for that char,
+        checks whether the player held long enough and scores accordingly.
+        Returns result dict (same shape as check_input), or empty dict if irrelevant.
+        """
+        if self._active_hold is None:
+            return {}
+        if released_char != self._active_hold.char:
+            return {}
+
+        elapsed = time.perf_counter() - self.start_time
+        held_secs = elapsed - self._hold_press_time
+        required = self._active_hold.hold_duration * (1.0 - self._hold_release_grace)
+
+        if held_secs >= required:
+            return self._complete_hold(self._hold_judgment)
+        else:
+            # Released too early — miss
+            self._active_hold = None
+            self._register_miss()
+            return {'hit': False, 'judgment': 'hold_broken', 'time_diff': 0, 'combo': 0}
+
+    def _complete_hold(self, judgment: str) -> dict:
+        """Score a successfully completed hold note and clear hold state."""
+        self._register_hold_hit(judgment)
+        self._active_hold = None
+        return {
+            'hit': True,
+            'judgment': f'hold_{judgment}',
+            'time_diff': 0,
+            'combo': self.combo,
+            'is_word_complete': self._is_word_complete(),
         }
     
     def _get_judgment(self, time_diff: float) -> str:
@@ -161,11 +234,21 @@ class RhythmManager:
         """Register a successful hit and update combo"""
         self.combo += 1
         self.max_combo = max(self.max_combo, self.combo)
-        
+
         if judgment == 'perfect':
             self.perfect_hits += 1
         elif judgment == 'good':
             self.good_hits += 1
+
+    def _register_hold_hit(self, judgment: str):
+        """Register a completed hold note — worth more than a tap."""
+        self.combo += 1
+        self.max_combo = max(self.max_combo, self.combo)
+
+        if judgment == 'perfect':
+            self.hold_perfect_hits += 1
+        elif judgment == 'good':
+            self.hold_good_hits += 1
     
     def _register_miss(self):
         """Register a miss and break combo"""
@@ -310,15 +393,17 @@ class RhythmManager:
         """
         Calculate score based on modern rhythm game scoring.
         Perfect hits are worth more, combo multiplier applies.
+        Hold notes are worth 500/175 (perfect/good) — more than taps.
         """
         base_score = (
             self.perfect_hits * 300 +
-            self.good_hits * 100
+            self.good_hits * 100 +
+            self.hold_perfect_hits * 500 +
+            self.hold_good_hits * 175
         )
-        
-        # COMBO MULTIPLIER
+
         combo_multiplier = min(1.0 + (self.max_combo / 100), 2.0)
-        
+
         return int(base_score * combo_multiplier)
     
     def get_accuracy(self) -> float:
@@ -326,12 +411,14 @@ class RhythmManager:
         total_notes = len([e for e in self.beat_map if not e.is_rest])
         if total_notes == 0:
             return 100.0
-        
+
         weighted_hits = (
             self.perfect_hits * 1.0 +
-            self.good_hits * 0.7
+            self.good_hits * 0.7 +
+            self.hold_perfect_hits * 1.0 +
+            self.hold_good_hits * 0.7
         )
-        
+
         return min(100.0, (weighted_hits / total_notes) * 100)
     
     def get_rank(self) -> str:
