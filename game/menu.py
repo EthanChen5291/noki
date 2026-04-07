@@ -932,23 +932,37 @@ class LevelSelect:
         self._rename_result: tuple[int, str] = (0, "")
         self._rename_font = pygame.font.Font(_FONT, 42)   # matches button_font
 
+        # rename push animation — songs below the new slot lerp down then back up
+        _RENAME_PUSH_AMOUNT    = self.button_height + self.button_spacing
+        self._rename_push_px   = _RENAME_PUSH_AMOUNT   # pixels to push songs below
+        self._rename_push_t    = 0.0    # 0 = normal, 1 = fully pushed
+        self._rename_push_dir  = 0      # +1 opening, -1 closing
+        self._rename_push_start: float = 0.0
+        self._RENAME_PUSH_DUR  = 0.22   # seconds
+
         _btn_sz = 52
         self.back_button = ImageButton(30 + _btn_sz // 2, 30 + _btn_sz // 2, _btn_sz, _EXIT_IMG)
         total = len(song_names) * (self.button_height + self.button_spacing)
         self.max_scroll = max(0, total - (sh - self.list_top - 40))
 
     def begin_rename(self, idx: int):
-        """Start an inline rename for the slot at idx (scroll it into view first)."""
+        """Start an inline rename for the slot at idx and animate songs below downward."""
         self._rename_idx = idx
         btn = self.level_buttons[idx]
-        # build a TextInput that fills the button's text area
         rect = pygame.Rect(btn.rect.x + 8, btn.rect.y + 8,
                            btn.rect.w - 16, btn.rect.h - 16)
         self._rename_input = TextInput(rect, self._rename_font, placeholder="Enter song name…")
         self._rename_input.active = True
-        # scroll so the new slot is visible
-        target_y = btn.rect.y - self.list_top
-        self.scroll_offset = max(0, min(target_y, self.max_scroll))
+        # snap scroll to top so new slot is always visible
+        self.scroll_offset = 0
+        # kick off open animation
+        self._rename_push_dir   = 1
+        self._rename_push_start = time.time()
+
+    def cancel_rename_anim(self):
+        """Start the close animation (songs lerp back up)."""
+        self._rename_push_dir   = -1
+        self._rename_push_start = time.time()
 
     def _finish_rename(self) -> tuple[int, str] | None:
         """Commit rename; returns (idx, new_display) or None if blank (keep original)."""
@@ -956,6 +970,9 @@ class LevelSelect:
         inp   = self._rename_input
         self._rename_idx   = None
         self._rename_input = None
+        # snap push back to 0 immediately on commit
+        self._rename_push_t   = 0.0
+        self._rename_push_dir = 0
         if idx is None or inp is None:
             return None
         name = inp.text.strip()
@@ -1018,6 +1035,7 @@ class LevelSelect:
                         cancel_idx = self._rename_idx if self._rename_idx is not None else -1
                         self._rename_idx   = None
                         self._rename_input = None
+                        self.cancel_rename_anim()
                         return "cancel_upload", cancel_idx
                     elif ev.key == pygame.K_BACKSPACE:
                         self._rename_input.text = self._rename_input.text[:-1]
@@ -1142,6 +1160,18 @@ class LevelSelect:
         hdr = self.header_font.render("SONGS", True, (255, 255, 255))
         self.screen.blit(hdr, hdr.get_rect(center=(right_cx, 68)))
 
+        # ── advance rename push animation ────────────────────────────────
+        if self._rename_push_dir != 0:
+            raw = (current_time - self._rename_push_start) / self._RENAME_PUSH_DUR
+            t   = min(1.0, max(0.0, raw))
+            ease = t * t * (3.0 - 2.0 * t)   # smoothstep
+            if self._rename_push_dir == 1:
+                self._rename_push_t = ease
+            else:
+                self._rename_push_t = 1.0 - ease
+                if t >= 1.0:
+                    self._rename_push_dir = 0   # animation done
+
         # Scrollable list
         scroll_clip = pygame.Rect(div_x + 1, self.list_top - 10, sw, sh - self.list_top)
         self.screen.set_clip(scroll_clip)
@@ -1149,8 +1179,12 @@ class LevelSelect:
         _SCROLL_SPEED = 48   # px / sec  — how fast the marquee moves
         _PAUSE        = 2.0  # sec pause at left edge before scrolling
 
+        _push_offset = int(self._rename_push_px * self._rename_push_t)
+        _rename_row  = self._rename_idx if self._rename_idx is not None else -1
+
         for i, btn in enumerate(self.level_buttons):
-            vis_y = btn.rect.y - self.scroll_offset
+            extra = _push_offset if i > _rename_row else 0
+            vis_y = btn.rect.y - self.scroll_offset + extra
 
             # ── hover glow ──────────────────────────────────────────────
             btn._scale += (btn._target_scale - btn._scale) * 0.18
@@ -1158,68 +1192,65 @@ class LevelSelect:
                 glow = pygame.Rect(btn.rect.x, vis_y, btn.rect.w, btn.rect.h).inflate(8, 8)
                 pygame.draw.rect(self.screen, (80, 80, 100), glow, 2, border_radius=8)
 
-            # ── marquee text ─────────────────────────────────────────────
-            color     = btn.hover_color if btn.is_hovered else btn.base_color
-            text_surf = btn.font.render(self._full_names[i], True, color)
-            tw        = text_surf.get_width()
-            pad       = 10
-            clip_w    = btn.rect.w - pad        # available width for text
-            text_y    = vis_y + (btn.rect.h - text_surf.get_height()) // 2
+            # ── marquee text (skip for the slot currently being renamed) ──
+            is_renaming_slot = (self._rename_input is not None and self._rename_idx == i)
 
-            if tw > clip_w:
-                max_off   = tw - clip_w
-                scroll_t  = max_off / _SCROLL_SPEED
-                cycle     = _PAUSE + scroll_t + _PAUSE + scroll_t
-                t         = (current_time + i * 0.4) % cycle
-                if t < _PAUSE:
-                    # pause at start
-                    x_off = 0
-                elif t < _PAUSE + scroll_t:
-                    # scroll forward
-                    x_off = int((t - _PAUSE) * _SCROLL_SPEED)
-                elif t < _PAUSE + scroll_t + _PAUSE:
-                    # pause at end
-                    x_off = max_off
+            if not is_renaming_slot:
+                color     = btn.hover_color if btn.is_hovered else btn.base_color
+                text_surf = btn.font.render(self._full_names[i], True, color)
+                tw        = text_surf.get_width()
+                pad       = 10
+                clip_w    = btn.rect.w - pad
+                text_y    = vis_y + (btn.rect.h - text_surf.get_height()) // 2
+
+                if tw > clip_w:
+                    max_off   = tw - clip_w
+                    scroll_t  = max_off / _SCROLL_SPEED
+                    cycle     = _PAUSE + scroll_t + _PAUSE + scroll_t
+                    t         = (current_time + i * 0.4) % cycle
+                    if t < _PAUSE:
+                        x_off = 0
+                    elif t < _PAUSE + scroll_t:
+                        x_off = int((t - _PAUSE) * _SCROLL_SPEED)
+                    elif t < _PAUSE + scroll_t + _PAUSE:
+                        x_off = max_off
+                    else:
+                        x_off = int(max_off - (t - _PAUSE - scroll_t - _PAUSE) * _SCROLL_SPEED)
+                    draw_x = btn.rect.x + pad - x_off
                 else:
-                    # scroll back
-                    x_off = int(max_off - (t - _PAUSE - scroll_t - _PAUSE) * _SCROLL_SPEED)
-                draw_x = btn.rect.x + pad - x_off
-            else:
-                draw_x = btn.rect.x + (btn.rect.w - tw) // 2
+                    draw_x = btn.rect.x + (btn.rect.w - tw) // 2
 
-            # clip text to its own column (inside scroll_clip)
-            text_clip = pygame.Rect(btn.rect.x + pad, vis_y, clip_w, btn.rect.h)
-            old_clip  = self.screen.get_clip()
-            self.screen.set_clip(text_clip.clip(old_clip))
-            self.screen.blit(text_surf, (draw_x, text_y))
-            self.screen.set_clip(old_clip)
-
-            # ── inline rename textbox (replaces text for the renaming slot) ──
-            if self._rename_input is not None and self._rename_idx == i:
-                inp   = self._rename_input
-                cx    = btn.rect.x + btn.rect.w // 2   # horizontal center of slot
-                cy    = vis_y + btn.rect.h // 2
-
-                display = inp.text if inp.text else inp.placeholder
-                color   = (255, 255, 255) if inp.text else (90, 90, 115)
-                tsurf   = self._rename_font.render(display, True, color)
-                th      = tsurf.get_height()
-
-                # clip to the slot width so text doesn't overflow into rank column
-                old_clip = self.screen.get_clip()
-                slot_clip = pygame.Rect(btn.rect.x, vis_y, btn.rect.w, btn.rect.h)
-                self.screen.set_clip(slot_clip.clip(old_clip))
-                self.screen.blit(tsurf, tsurf.get_rect(center=(cx, cy)))
+                text_clip = pygame.Rect(btn.rect.x + pad, vis_y, clip_w, btn.rect.h)
+                old_clip  = self.screen.get_clip()
+                self.screen.set_clip(text_clip.clip(old_clip))
+                self.screen.blit(text_surf, (draw_x, text_y))
                 self.screen.set_clip(old_clip)
 
-                # blinking cursor at right edge of text, centered vertically
+            # ── inline rename textbox ────────────────────────────────────
+            if is_renaming_slot and self._rename_input is not None:
+                inp = self._rename_input
+                cx  = btn.rect.x + btn.rect.w // 2
+                cy  = vis_y + btn.rect.h // 2
+
+                tsurf = self._rename_font.render(inp.text, True, (255, 255, 255)) if inp.text \
+                        else None
+                th = self._rename_font.get_height()
+
+                if tsurf is not None:
+                    old_clip  = self.screen.get_clip()
+                    slot_clip = pygame.Rect(btn.rect.x, vis_y, btn.rect.w, btn.rect.h)
+                    self.screen.set_clip(slot_clip.clip(old_clip))
+                    self.screen.blit(tsurf, tsurf.get_rect(center=(cx, cy)))
+                    self.screen.set_clip(old_clip)
+
+                # blinking cursor — taller and thicker
                 if int(current_time * 2) % 2 == 0:
-                    tw = tsurf.get_width()
-                    cur_x = cx + tw // 2 + 3
-                    cur_x = min(cur_x, btn.rect.x + btn.rect.w - 4)
+                    tw_half = (tsurf.get_width() // 2) if tsurf else 0
+                    cur_x   = min(cx + tw_half + 4, btn.rect.x + btn.rect.w - 6)
+                    cur_h   = int(th * 0.85)
                     pygame.draw.line(self.screen, (200, 200, 255),
-                                     (cur_x, cy - th // 2 + 2),
-                                     (cur_x, cy + th // 2 - 2), 2)
+                                     (cur_x, cy - cur_h // 2),
+                                     (cur_x, cy + cur_h // 2), 3)
             else:
                 rank = self._best_rank(self.song_names[i])
                 if rank is not None:
@@ -1903,12 +1934,17 @@ class MenuManager:
                             self.level_select = LevelSelect(self.screen, self.song_names, self._scores)
                             self.level_select.begin_rename(0)  # index 0 = newly inserted slot
                 elif action == "cancel_upload":
-                    # Escape during rename — remove the just-added song slot
-                    cancel_idx = idx  # idx holds the rename slot index
+                    # Escape during rename — remove the slot from all lists in-place
+                    # so the close animation can still play on the existing LevelSelect
+                    cancel_idx = idx
                     if 0 <= cancel_idx < len(self.song_names):
                         removed = self.song_names.pop(cancel_idx)
                         self.song_word_banks.pop(removed, None)
-                    self.level_select = LevelSelect(self.screen, self.song_names, self._scores)
+                        ls = self.level_select
+                        if cancel_idx < len(ls.level_buttons):
+                            ls.level_buttons.pop(cancel_idx)
+                            ls.difficulty_selectors.pop(cancel_idx)
+                            ls._full_names.pop(cancel_idx)
                 elif action == "rename":
                     rename_idx, new_name = self.level_select._rename_result
                     # Update display name in level_select lists

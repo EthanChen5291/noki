@@ -4,6 +4,12 @@ from game.models import Level
 from game.menu import MenuManager, _load_scores, _save_scores
 from game.music import MusicManager
 
+
+
+# when pressing esc during level naming, it leaves the gap at the top. moreover reduce this gap during anaming by 25% of its height (just during regular naming
+# at the end of the song, make the timeline lerp down to a stop) before it takes it back to the main menu (3 second to lerp to stop with smooth deacceleration)
+# moreover if the song reaches silence at the end before the song file ends, start slowing down around that ime
+
 # add a menu UI -> whenever players click on a level, they see a menu with the difficulty and top score and play button. it's a squarish-rectangle (longer horizontally) with black bg and white borders
 # in the actual levels screen (with all the levels), don't show the difficulty (that'll be toggles in the individual level menus) and just show the rank of the player's best score
 
@@ -36,6 +42,15 @@ from game.music import MusicManager
 # as appropriate to only include letters on the "not holding" side for the words)
 # - VERS 2: same idea as VERS 1 except no holding. full words show up on each timeline (so not split letters of the same word list)
 # where each word only has letters corresponding to its respective side of the keyboard
+
+# SPEAK MODE: 
+# uses AI to say the word (girl voice) -> noki meow animation.
+# # user has word_duration amount of time to type the entire word, no beats just type it in x time.
+# SYMBOL: volume symbol on timeline
+# this leads timeline to fade away and noki to lerp to center and camera to zoom in on noki (noki bop 2 animation).
+# when it's time for word, ensure word is at least 3 letters long and noki does noki_meow animation. 
+# WAIT REAL ANIMATION: they speak, and when it's typed correctly, noki meows and gets rid of red spots crawling towards him (shockwavve)
+# this repeats. speak mode has a cooldown AND SHOULD ONLY WORK WITH PARTS OF THE SONG (what parts?) and should last at least 3-4 measures (until the audio appears to "change section") 
 
 # ADD 2 MORE CATS, each with their own hitmarker skin: 
 # base cat (current cat) -> red skin. THREE LIVES, normal points

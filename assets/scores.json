@@ -4,18 +4,41 @@
     "master": 33366
   },
   "Playful Massacre.mp3": {
-    "classic": 21895
+    "classic": 21895,
+    "master": 80600
   },
   "Scorpion.mp3": {
     "classic": 103400
   },
   "Catch Catch.mp3": {
-    "classic": 73216
+    "classic": 73216,
+    "master": 71060
   },
   "Fluffing A Duck.mp3": {
     "classic": 17802
   },
   "Malo Kart.mp3": {
     "classic": 55272
+  },
+  "Decisive Battle.mp3": {
+    "master": 44341
+  },
+  "ICARIUS.mp3": {
+    "classic": 63000
+  },
+  "tidalwave.mp3": {
+    "master": 117400
+  },
+  "Toby Fox - Finale.mp3": {
+    "master": 46150
+  },
+  "Chaos Construct.mp3": {
+    "master": 28350
+  },
+  "Glitch in your Heart.mp3": {
+    "master": 63063
+  },
+  "what is love?.mp3": {
+    "master": 110490
   }
 }
