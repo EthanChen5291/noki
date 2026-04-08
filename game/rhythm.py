@@ -96,11 +96,10 @@ class RhythmManager:
 
         elapsed = time.perf_counter() - self.start_time
 
-        # Auto-complete a hold if player held long enough without releasing
+        # Auto-complete a hold only when the full visual duration has elapsed
         if self._active_hold is not None:
             held_secs = elapsed - self._hold_press_time
-            required = self._active_hold.hold_duration * (1.0 - self._hold_release_grace)
-            if held_secs >= required:
+            if held_secs >= self._active_hold.hold_duration:
                 self._complete_hold(self._hold_judgment)
             return  # while holding, don't advance past the hold note
 
