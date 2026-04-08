@@ -1,18 +1,18 @@
 {
   "Disturbing the Peace.mp3": {
     "classic": 77161,
-    "master": 33366
+    "master": 47553
   },
   "Playful Massacre.mp3": {
     "classic": 21895,
-    "master": 80600
+    "master": 81400
   },
   "Scorpion.mp3": {
     "classic": 103400
   },
   "Catch Catch.mp3": {
     "classic": 73216,
-    "master": 71060
+    "master": 131900
   },
   "Fluffing A Duck.mp3": {
     "classic": 17802
@@ -24,7 +24,8 @@
     "master": 44341
   },
   "ICARIUS.mp3": {
-    "classic": 63000
+    "classic": 63000,
+    "master": 99769
   },
   "tidalwave.mp3": {
     "master": 117400
@@ -36,9 +37,28 @@
     "master": 28350
   },
   "Glitch in your Heart.mp3": {
-    "master": 63063
+    "master": 99500
   },
   "what is love?.mp3": {
-    "master": 110490
+    "master": 110490,
+    "classic": 2652
+  },
+  "Huntrix - Takedown (Lyrics)  K-Pop Demon Hunters.mp3": {
+    "classic": 2346,
+    "journey": 50215,
+    "master": 132960
+  },
+  "Thee Sacred Souls - Can I Call You Rose.mp3": {
+    "classic": 66104
+  },
+  "Kendrick Lamar, SZA - luther (Lyrics).mp3": {
+    "master": 612,
+    "classic": 29554
+  },
+  "Takedown - Huntrix.mp3": {
+    "master": 180450
+  },
+  "Ed Sheeran  Shape of You (Lyrics).mp3": {
+    "classic": 70718
   }
 }

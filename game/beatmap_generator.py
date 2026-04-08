@@ -484,6 +484,19 @@ def generate_beatmap(
 
     events = deduplicate_events(events, beat_duration, min_spacing=profile.min_char_spacing)
 
+    # Post-process: cap every hold duration so its tail never reaches the next note.
+    # Uses a 200ms visual gap so bars never visually touch.
+    _HOLD_VISUAL_GAP = 0.20
+    char_events = [e for e in events if not e.is_rest and e.char]
+    for i, ev in enumerate(char_events):
+        if ev.hold_duration <= 0:
+            continue
+        if i + 1 < len(char_events):
+            next_t = char_events[i + 1].timestamp
+            max_allowed = max(0.0, next_t - ev.timestamp - _HOLD_VISUAL_GAP)
+            if ev.hold_duration > max_allowed:
+                ev.hold_duration = max_allowed
+
     #ensure beatmap doesn't extend past song duration
     # and pad with a blank measure of rest at the end so the last word
     # has time to scroll off before the level ends

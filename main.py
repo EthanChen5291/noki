@@ -4,16 +4,26 @@ from game.models import Level
 from game.menu import MenuManager, _load_scores, _save_scores
 from game.music import MusicManager
 
+# whenever you add songs in custom, it disappears from custom and goes into canon menu after playing
+
+# dual mode section -> no notes during first 2-3 measures for some reason (should only be grace of 1 measure)
+# can't scroll down in canon level menu
+
+# canon and custom tabs should be 120% larger and centered (center of the tab between the vertical line on the left and the right side of screen).
+# they should be chrome tab style where they are curvy rectangles on the top but cut off by a line on the bottom (add a horizontal line under it)
+
+# hold notes shouldn't disappear the moment the user presses -> only the parts of the note that have passed the hitmarker 
+# and been pressed should disappear -> all others should still be there until they've been pressed 
+# (or, if they past the hitmarker and arne't pressed they turn red)
+# moreover some slight particles should be released around the note area whenever they're being pressed as an effect (I want a particle effect (like random particles flying from the point of impact (particles can fly anywhere from the point of impact and fading away on the hitmaker area if the user presses the key and hits the long note).)
+# in dual/bounce mode the hold notes should be reversed. if the hold note is coming from the left, right now its sprite is still arriving end of hold note first
+
+# moreover long hold notes during normal sections are fine especially if it's genuinely a very strong hold note (from audio analysis) 
+# but need to ensure that it doesn't overlap with other notes -> if it does, remove the other notes (and adjust the word as appropriate)
 
 
-# when pressing esc during level naming, it leaves the gap at the top. moreover reduce this gap during anaming by 25% of its height (just during regular naming
-# at the end of the song, make the timeline lerp down to a stop) before it takes it back to the main menu (3 second to lerp to stop with smooth deacceleration)
-# moreover if the song reaches silence at the end before the song file ends, start slowing down around that ime
+# whenever the session slows down at the end of the level, make sure the zoom stops zooming out after a bit (so it doesnt look like the timeline is being crunched into the hitmarker)
 
-# add a menu UI -> whenever players click on a level, they see a menu with the difficulty and top score and play button. it's a squarish-rectangle (longer horizontally) with black bg and white borders
-# in the actual levels screen (with all the levels), don't show the difficulty (that'll be toggles in the individual level menus) and just show the rank of the player's best score
-
-# dual mode section -> no notes
 
 
 # -- underscore for words not showing up on some words
@@ -65,6 +75,7 @@ SONG_NAMES = [
     "Scorpion.mp3",
     "Playful Massacre.mp3", 
     "Decisive Battle.mp3", 
+    "Takedown - Huntrix.mp3", 
     "Glitch in your Heart.mp3", 
     "Disturbing the Peace.mp3", 
     "Catch Catch.mp3", 

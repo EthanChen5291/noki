@@ -55,6 +55,9 @@ class Game:
         self._score_popups: list[dict] = []  # each: {delta, y, alpha}
         self._score_font = pygame.font.Font(_FONT, 56)
         self._popup_font = pygame.font.Font(_FONT, 38)
+
+        # hold note particles: list of {x, y, vx, vy, alpha, radius}
+        self._hold_particles: list[dict] = []
         
         self.message = None
         self.message_duration = 0.0
@@ -546,6 +549,24 @@ class Game:
 
         self.shockwaves = surviving
 
+    def update_hold_particles(self, dt: float):
+        """Tick and render hold-note impact particles."""
+        surviving = []
+        for p in self._hold_particles:
+            p['x']     += p['vx'] * dt
+            p['y']     += p['vy'] * dt
+            p['vy']    += 120 * dt   # slight gravity
+            p['alpha'] -= 420 * dt
+            if p['alpha'] > 0:
+                surviving.append(p)
+                r = int(p['radius'])
+                sz = r * 2 + 1
+                surf = pygame.Surface((sz, sz), pygame.SRCALPHA)
+                col = p.get('color', (255, 210, 60))
+                pygame.draw.circle(surf, (*col, int(p['alpha'])), (r, r), r)
+                self.screen.blit(surf, (int(p['x'] - r), int(p['y'] - r)))
+        self._hold_particles = surviving
+
     def update_dynamic_scroll_speed(self, current_time: float):
         """Smoothly interpolate scroll speed based on intensity tiers + energy shifts"""
         song_time = current_time - self.rhythm.lead_in
@@ -898,6 +919,7 @@ class Game:
         self.update_timeline_animation(dt)
 
         self.update_shockwaves(dt)
+        self.update_hold_particles(dt)
 
         self.update_cat_animation()
         if self._bop_surf is not None:
@@ -933,10 +955,11 @@ class Game:
                 self._outro_start_time = current_time
                 self._outro_start_spd  = self.scroll_speed
             outro_elapsed = current_time - self._outro_start_time
-            # cubic ease-out deceleration
+            # cubic ease-out deceleration — floor at 15% so timeline doesn't crunch
             t    = min(1.0, outro_elapsed / self._outro_dur)
             ease = 1.0 - (1.0 - t) ** 3
-            self.scroll_speed = max(0.0, self._outro_start_spd * (1.0 - ease))
+            _min_spd = self._outro_start_spd * 0.15
+            self.scroll_speed = max(_min_spd, self._outro_start_spd * (1.0 - ease * 0.85))
             if outro_elapsed >= self._outro_dur:
                 self.show_message("Congratulations!", 5)
                 self._exit_to_menu = True
@@ -1478,6 +1501,52 @@ class Game:
                 else:
                     marker_x = hit_marker_x + (time_until_hit * self.scroll_speed)
 
+                is_active_hold = (self.rhythm._active_hold is event)
+
+                # For active holds: the head has passed the hitmarker; draw the
+                # remaining (unheld) tail extending ahead of the hitmarker.
+                if is_active_hold and event.hold_duration > 0:
+                    elapsed_hold = current_time - self.rhythm._hold_press_time
+                    remaining_dur = max(0.0, event.hold_duration - elapsed_hold)
+                    remaining_px  = int(remaining_dur * self.scroll_speed)
+                    radius = 14
+                    if remaining_px > 0:
+                        tail_surf = pygame.Surface((remaining_px, radius * 2), pygame.SRCALPHA)
+                        pygame.draw.rect(tail_surf, (255, 220, 60, 200),
+                                         (0, 0, remaining_px, radius * 2),
+                                         border_radius=radius)
+                        if note_from_left:
+                            # tail extends to the LEFT of hitmarker
+                            self.screen.blit(tail_surf, (int(hit_marker_x) - remaining_px, timeline_y - radius))
+                        else:
+                            self.screen.blit(tail_surf, (int(hit_marker_x), timeline_y - radius))
+                    # Spawn hold particles at the hitmarker
+                    if int(time.perf_counter() * 30) % 2 == 0:  # ~15 bursts/sec
+                        import random as _rnd
+                        # Golden particles — larger, shorter range
+                        for _ in range(2):
+                            self._hold_particles.append({
+                                'x': float(hit_marker_x) + _rnd.uniform(-6, 6),
+                                'y': float(timeline_y) + _rnd.uniform(-8, 8),
+                                'vx': _rnd.uniform(-55, 55),
+                                'vy': _rnd.uniform(-70, 20),
+                                'alpha': 220.0,
+                                'radius': _rnd.uniform(2.5, 5.0),
+                                'color': (255, 210, 60),
+                            })
+                        # White particles — smaller, faster, travel further
+                        for _ in range(3):
+                            self._hold_particles.append({
+                                'x': float(hit_marker_x) + _rnd.uniform(-4, 4),
+                                'y': float(timeline_y) + _rnd.uniform(-6, 6),
+                                'vx': _rnd.uniform(-110, 110),
+                                'vy': _rnd.uniform(-130, 30),
+                                'alpha': 190.0,
+                                'radius': _rnd.uniform(1.0, 2.2),
+                                'color': (240, 240, 255),
+                            })
+                    continue  # don't draw the circle head again
+
                 if timeline_start_x <= marker_x <= timeline_end_x:
                     if event.char != "" and not event.hit:
                         is_missed = time_until_hit < 0
@@ -1495,28 +1564,32 @@ class Game:
                             color = C.COLOR
 
                         # Draw hold note body (rounded rect) before the circle
-                        if event.hold_duration > 0 and not is_missed:
-                            hold_px = event.hold_duration * self.scroll_speed
-                            hold_rect_x = int(marker_x)
-                            hold_rect_y = timeline_y - radius
-                            hold_rect_w = int(hold_px)
+                        if event.hold_duration > 0:
+                            hold_px = int(event.hold_duration * self.scroll_speed)
                             hold_rect_h = radius * 2
-                            # Clamp to timeline bounds
-                            if hold_rect_x + hold_rect_w > timeline_end_x:
-                                hold_rect_w = timeline_end_x - hold_rect_x
+
+                            if note_from_left:
+                                # tail extends LEFT from the note head
+                                hold_rect_x = int(marker_x) - hold_px
+                                hold_rect_w = hold_px
+                                # clamp to timeline
+                                if hold_rect_x < timeline_start_x:
+                                    clip = timeline_start_x - hold_rect_x
+                                    hold_rect_x = timeline_start_x
+                                    hold_rect_w -= clip
+                            else:
+                                hold_rect_x = int(marker_x)
+                                hold_rect_w = hold_px
+                                if hold_rect_x + hold_rect_w > timeline_end_x:
+                                    hold_rect_w = timeline_end_x - hold_rect_x
 
                             if hold_rect_w > 0:
                                 hold_surf = pygame.Surface((hold_rect_w, hold_rect_h), pygame.SRCALPHA)
-                                # Golden hold body
-                                is_active_hold = (self.rhythm._active_hold is event)
-                                if is_active_hold:
-                                    hold_color = (255, 220, 60, 200)
-                                else:
-                                    hold_color = (255, 200, 40, 140)
+                                hold_color = (255, 80, 80, 160) if is_missed else (255, 200, 40, 140)
                                 pygame.draw.rect(hold_surf, hold_color,
                                                  (0, 0, hold_rect_w, hold_rect_h),
                                                  border_radius=radius)
-                                self.screen.blit(hold_surf, (hold_rect_x, hold_rect_y))
+                                self.screen.blit(hold_surf, (hold_rect_x, timeline_y - radius))
 
                         # Draw the main note circle
                         pygame.draw.circle(

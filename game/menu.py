@@ -204,7 +204,24 @@ def _fetch_lyrics_words(artist: str, title: str) -> list[str]:
 
 # ─── Persistent song word-bank store ─────────────────────────────────────────
 
-_WORD_BANK_FILE = os.path.join("assets", "song_words.json")
+_WORD_BANK_FILE   = os.path.join("assets", "song_words.json")
+_CUSTOM_SONGS_FILE = os.path.join("assets", "custom_songs.json")
+
+
+def _load_custom_songs() -> list[str]:
+    try:
+        with open(_CUSTOM_SONGS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _save_custom_songs(names: list[str]) -> None:
+    try:
+        with open(_CUSTOM_SONGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(names, f, indent=2)
+    except Exception:
+        pass
 
 
 def _load_word_banks() -> dict[str, list[str]]:
@@ -817,7 +834,7 @@ class LevelSelect:
 
         # ── Tab geometry ──────────────────────────────────────────────────
         self.list_top       = 148     # pushed down to make room for tabs
-        self._tab_font      = pygame.font.Font(_FONT, 32)
+        self._tab_font      = pygame.font.Font(_FONT, 48)
         self._active_tab    = 0       # 0 = Canon, 1 = Custom
         self._tab_lerp      = 0.0    # 0.0 → tab 0, 1.0 → tab 1 (drives highlight lerp)
         self._TAB_LERP_SPD  = 8.0    # lerp speed (units/sec)
@@ -957,21 +974,29 @@ class LevelSelect:
 
         _btn_sz = 52
         self.back_button = ImageButton(30 + _btn_sz // 2, 30 + _btn_sz // 2, _btn_sz, _EXIT_IMG)
-        self._scroll_offsets  = [0, 0]   # per-tab scroll
-        self._max_scrolls     = [0, 0]   # filled by _recompute_max_scrolls after _tab_indices built
+        self._scroll_offsets  = [0, 0]   # per-tab scroll (max scrolls already computed above)
 
         # ── Tab geometry (built after div_x is known) ────────────────────
-        # Tabs sit in the right panel header area
+        # Two chrome tabs centered across the right panel.
+        # Bottom of tabs aligns with list_top (where songs start clipping).
         tab_panel_x = div_x + 1
         tab_panel_w = sw - tab_panel_x
         self._tab_labels    = ["Canon", "Custom"]
         self._tab_rects: list[pygame.Rect] = []
-        _tab_h   = 42
-        _tab_top = 14
-        _tab_w   = min(130, tab_panel_w // 3)
+        self._tab_div_x     = div_x          # saved for underline drawing
+        # Underline position + 3% of screen height offset
+        self._tab_underline_y = int(self.list_top * 0.75) + int(sh * 0.03)
+        # Top of tab has a fixed margin so it's never clipped by the screen edge
+        _tab_top = 8 + int(sh * 0.03)
+        _tab_h   = self._tab_underline_y - _tab_top
+        # Width: 2.5× the old ~130 cap ≈ 325, capped so both fit in panel
+        _tab_w   = min(int(tab_panel_w * 0.38), 325)
+        _tab_gap = 10
+        _total_tabs_w = 2 * _tab_w + _tab_gap
+        _tabs_left = tab_panel_x + (tab_panel_w - _total_tabs_w) // 2
         for t in range(2):
             self._tab_rects.append(pygame.Rect(
-                tab_panel_x + 20 + t * (_tab_w + 6),
+                _tabs_left + t * (_tab_w + _tab_gap),
                 _tab_top, _tab_w, _tab_h,
             ))
 
@@ -1225,21 +1250,74 @@ class LevelSelect:
         self._tab_lerp += (target_lerp - self._tab_lerp) * min(1.0, self._TAB_LERP_SPD / 60.0)
 
         # ── Chrome tabs ──────────────────────────────────────────────────
+        _ul_y   = self._tab_underline_y   # y of the horizontal underline
+        _radius = 12                       # top-corner radius
+
+        def _draw_chrome_tab(surf, rect, bg_col, bord_col):
+            """Draw a chrome-style tab: rounded top corners, open/flat bottom.
+            Fills the bg, draws the three visible sides (left, top, right) then
+            covers the bottom edge with the bg color so it blends into the underline."""
+            x, y, w, h = rect.x, rect.y, rect.width, rect.height
+            r = _radius
+
+            # --- filled body (full rounded rect first, then cover bottom corners) ---
+            pygame.draw.rect(surf, bg_col, rect, border_radius=r)
+            # Cover bottom portion to make corners square at the bottom
+            pygame.draw.rect(surf, bg_col, pygame.Rect(x, y + h - r, w, r))
+
+            # --- border: left edge, top arc, right edge (skip bottom) ---
+            pts: list[tuple[float, float]] = []
+            # bottom-left corner (no curve)
+            pts.append((x, y + h))
+            pts.append((x, y + r))
+            # top-left arc
+            for i in range(11):
+                a = math.pi + i * (math.pi / 2) / 10
+                pts.append((x + r + r * math.cos(a), y + r + r * math.sin(a)))
+            # top-right arc
+            for i in range(11):
+                a = -math.pi / 2 + i * (math.pi / 2) / 10
+                pts.append((x + w - r + r * math.cos(a), y + r + r * math.sin(a)))
+            # bottom-right corner (no curve)
+            pts.append((x + w, y + r))
+            pts.append((x + w, y + h))
+            if len(pts) >= 2:
+                pygame.draw.lines(surf, bord_col, False, pts, 2)
+
         for t, (tr, label) in enumerate(zip(self._tab_rects, self._tab_labels)):
-            # highlight amount: 1.0 for active, 0.0 for inactive, smoothly lerped
+            # highlight: 1.0 = active tab, 0.0 = inactive
             if t == 0:
                 hi = 1.0 - self._tab_lerp
             else:
                 hi = self._tab_lerp
-            bg_r = int(18 + 38 * hi)
-            bg_col = (bg_r, bg_r, bg_r + 8)
-            # chrome tab shape: rounded top corners, open bottom
-            pygame.draw.rect(self.screen, bg_col, tr, border_radius=8)
-            bord_col = (int(60 + 120 * hi),) * 3
-            pygame.draw.rect(self.screen, bord_col, tr, 1, border_radius=8)
-            txt_col = (int(180 + 75 * hi),) * 3
+            bg_r   = int(18 + 40 * hi)
+            bg_col = (bg_r, bg_r, bg_r + 10)
+            bord_col = (int(55 + 130 * hi),) * 3
+            _draw_chrome_tab(self.screen, tr, bg_col, bord_col)
+            txt_col = (int(170 + 85 * hi),) * 3
             ts = self._tab_font.render(label, True, txt_col)
             self.screen.blit(ts, ts.get_rect(center=tr.center))
+
+        # Horizontal underline from the vertical divider to the right edge
+        pygame.draw.line(
+            self.screen,
+            (70, 70, 80),
+            (self._tab_div_x, _ul_y),
+            (sw, _ul_y),
+            2,
+        )
+        # Erase underline beneath the active tab so it looks "open" at the bottom
+        _active_idx = int(round(self._tab_lerp))
+        _active_tr  = self._tab_rects[_active_idx]
+        _hi_active  = 1.0 - self._tab_lerp if _active_idx == 0 else self._tab_lerp
+        _erase_r    = int(18 + 40 * _hi_active)
+        _erase_col  = (_erase_r, _erase_r, _erase_r + 10)
+        pygame.draw.line(
+            self.screen, _erase_col,
+            (_active_tr.left + 3, _ul_y),
+            (_active_tr.right - 3, _ul_y),
+            3,
+        )
 
         # ── advance rename push animation ────────────────────────────────
         if self._rename_push_dir != 0:
@@ -1264,6 +1342,18 @@ class LevelSelect:
         _rename_row  = self._rename_idx if self._rename_idx is not None else -1
         _row_h       = self.button_height + self.button_spacing
         _active_indices = self._tab_indices[self._active_tab]
+
+        # Empty Custom tab message
+        if self._active_tab == 1 and not _active_indices:
+            _empty_font = pygame.font.Font(_FONT, 52)
+            _empty_surf = _empty_font.render("No levels uploaded", True, (120, 120, 130))
+            sw2, sh2 = self.screen.get_size()
+            div_x2 = int(sw2 * self._LEFT_FRAC)
+            _empty_rect = _empty_surf.get_rect(
+                center=(div_x2 + (sw2 - div_x2) // 2,
+                        self.list_top + (sh2 - self.list_top) // 2)
+            )
+            self.screen.blit(_empty_surf, _empty_rect)
 
         for row, i in enumerate(_active_indices):
             btn   = self.level_buttons[i]
@@ -1827,7 +1917,13 @@ class MenuManager:
         self._level_menu: LevelMenu | None = None
         self._pending_difficulty: str | None = None
 
-        self._canon_names       = list(song_names)   # snapshot of original canon set
+        # Canon = built-in songs only; custom songs loaded from disk are excluded
+        _persisted_custom       = set(_load_custom_songs())
+        self._canon_names       = [n for n in song_names if n not in _persisted_custom]
+        # Add any persisted custom songs into song_names if not already present
+        for _cs in _load_custom_songs():
+            if _cs not in self.song_names:
+                self.song_names.insert(0, _cs)
         self.title_screen       = TitleScreen(screen)
         self.level_select       = LevelSelect(screen, song_names, self._scores,
                                               canon_names=self._canon_names)
@@ -2101,6 +2197,11 @@ class MenuManager:
             # persist word bank
             self.song_word_banks[filename] = word_bank if word_bank is not None else DEFAULT_WORD_BANK[:]
             _save_word_banks(self.song_word_banks)
+            # persist as custom so it stays out of Canon on future sessions
+            _custom = _load_custom_songs()
+            if filename not in _custom:
+                _custom.append(filename)
+                _save_custom_songs(_custom)
             return True, filename
         except Exception as e:
             return False, f"Upload failed: {e}"
