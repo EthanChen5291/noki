@@ -58,6 +58,8 @@ class Game:
 
         # hold note particles: list of {x, y, vx, vy, alpha, radius}
         self._hold_particles: list[dict] = []
+        # osu!-style hit bursts
+        self._hit_bursts: list[dict] = []
         
         self.message = None
         self.message_duration = 0.0
@@ -105,6 +107,33 @@ class Game:
                 _s = pygame.transform.smoothscale(_s, (_fw_scaled, _bop_target_h))
                 self._bop_frames.append(_s)
         _pre_cap.release()
+
+        # ── noki_hurt: pre-decode all frames ────────────────────────────
+        import cv2 as _cv2
+        _hurt_path = os.path.join(assets_path, "noki_hurt.mov")
+        self._hurt_frames: list[pygame.Surface] = []
+        self._hurt_fps: float = 30.0
+        _hurt_cap = _cv2.VideoCapture(_hurt_path)
+        if _hurt_cap.isOpened():
+            _fps_h = _hurt_cap.get(_cv2.CAP_PROP_FPS)
+            if _fps_h > 0:
+                self._hurt_fps = _fps_h
+            while True:
+                _ret, _frm = _hurt_cap.read()
+                if not _ret:
+                    break
+                _rgb = _cv2.cvtColor(_frm, _cv2.COLOR_BGR2RGB)
+                _fh, _fw = _rgb.shape[:2]
+                _fw_scaled = int(_fw * _bop_target_h / _fh)
+                _s = pygame.surfarray.make_surface(_rgb.transpose(1, 0, 2))
+                _s = pygame.transform.smoothscale(_s, (_fw_scaled, _bop_target_h))
+                self._hurt_frames.append(_s)
+        _hurt_cap.release()
+
+        # hurt playback state
+        self._hurt_playing: bool = False
+        self._hurt_frame_idx: float = 0.0   # fractional index
+        self._hurt_queued: int = 0           # repeats still to play
 
         self.cat_frame = None  # kept for draw compatibility
 
@@ -414,6 +443,29 @@ class Game:
             self._exit_to_menu = True
             self.running = False
 
+    def trigger_hurt(self):
+        """Queue one playthrough of noki_hurt on top of noki_bop."""
+        if not self._hurt_frames:
+            return
+        if self._hurt_playing:
+            # Already playing — restart from frame 0 (no cooldown)
+            self._hurt_frame_idx = 0.0
+        else:
+            self._hurt_playing = True
+            self._hurt_frame_idx = 0.0
+
+    def update_hurt_animation(self, dt: float):
+        """Advance hurt frame at 115% speed. Returns the current hurt surface, or None when done."""
+        if not self._hurt_playing or not self._hurt_frames:
+            return None
+        self._hurt_frame_idx += self._hurt_fps * dt * 1.15
+        n = len(self._hurt_frames)
+        if self._hurt_frame_idx >= n:
+            self._hurt_playing = False
+            self._hurt_frame_idx = 0.0
+            return None
+        return self._hurt_frames[int(self._hurt_frame_idx)]
+
     def update_cat_animation(self):
         """Select noki_bop frame, synced to song beat_times.
         Uses elapsed time from level start during lead-in so animation never freezes."""
@@ -494,30 +546,57 @@ class Game:
             )
             self.shockwaves.append(shockwave)
 
+    def _spawn_hit_particles(self, x: int, y: int):
+        """Spawn golden + white particles at (x, y) for any correct hit."""
+        import random as _rnd
+        for _ in range(2):
+            self._hold_particles.append({
+                'x': float(x) + _rnd.uniform(-6, 6),
+                'y': float(y) + _rnd.uniform(-8, 8),
+                'vx': _rnd.uniform(-55, 55),
+                'vy': _rnd.uniform(-70, 20),
+                'alpha': 220.0,
+                'radius': _rnd.uniform(2.5, 5.0),
+                'color': (255, 210, 60),
+            })
+        for _ in range(3):
+            self._hold_particles.append({
+                'x': float(x) + _rnd.uniform(-4, 4),
+                'y': float(y) + _rnd.uniform(-6, 6),
+                'vx': _rnd.uniform(-110, 110),
+                'vy': _rnd.uniform(-130, 30),
+                'alpha': 190.0,
+                'radius': _rnd.uniform(1.0, 2.2),
+                'color': (240, 240, 255),
+            })
+
     def trigger_hit_ripple(self, x: int, y: int):
-        """Spawn three small, transparent ripple rings from varied offset centers"""
-        import random
-        offsets = [
-            (random.randint(-25, 25), random.randint(-15, 15)),
-            (random.randint(-30, 30), random.randint(-18, 18)),
-            (random.randint(-22, 22), random.randint(-12, 12)),
-        ]
-        configs = [
-            # (start_radius, max_radius, alpha, thickness, speed)
-            (0,  35, 120, 2, 90),
-            (3,  45, 90,  1, 130),
-            (6,  55, 70,  1, 170),
-        ]
-        for (ox, oy), (start_r, max_r, alpha, thick, spd) in zip(offsets, configs):
-            self.shockwaves.append(M.Shockwave(
-                center_x=x + ox,
-                center_y=y + oy,
-                radius=start_r,
-                max_radius=max_r,
-                alpha=alpha,
-                thickness=thick,
-                speed=spd,
-            ))
+        """Spawn the bubble-style 3-layer hit burst at (x, y)."""
+        import random as _rnd
+        NOTE_R = 14 * 0.6 * 0.6 * 1.1   # 40% smaller than original, then +10%
+        # Randomly pick one of three transparent pastel palettes
+        _palette = _rnd.choice([
+            # light blue
+            {'l3': (160, 185, 215), 'l2o': (130, 155, 200), 'l2i': (160, 180, 220), 'l1': (200, 215, 235)},
+            # light pink
+            {'l3': (210, 170, 195), 'l2o': (195, 145, 175), 'l2i': (220, 170, 200), 'l1': (235, 205, 220)},
+            # light purple
+            {'l3': (185, 165, 210), 'l2o': (160, 140, 195), 'l2i': (190, 168, 215), 'l1': (215, 205, 230)},
+        ])
+        self._hit_bursts.append({
+            'x': x, 'y': y,
+            'age': 0.0,
+            'l1_dur': 0.10,
+            'l1_r': NOTE_R,
+            'l2_dur': 0.20,
+            'l2_r0': NOTE_R * 0.8,
+            'l2_r1': NOTE_R * 2.5,
+            'l3_delay': 0.03,
+            'l3_dur': 0.25,
+            'l3_r0': NOTE_R * 1.0,
+            'l3_r1': NOTE_R * 3.2,
+            'pal': _palette,
+        })
 
     def trigger_miss_shockwave(self, x: int, y: int):
         """Spawn a small shockwave at a missed note position"""
@@ -566,6 +645,64 @@ class Game:
                 pygame.draw.circle(surf, (*col, int(p['alpha'])), (r, r), r)
                 self.screen.blit(surf, (int(p['x'] - r), int(p['y'] - r)))
         self._hold_particles = surviving
+
+    def update_hit_bursts(self, dt: float):
+        """Tick and render osu!-style 3-layer hit bursts."""
+        surviving = []
+        for b in self._hit_bursts:
+            b['age'] += dt
+            age = b['age']
+            x, y = b['x'], b['y']
+            surf_sz = int(b['l3_r1'] * 2 + 12)
+            if surf_sz < 4:
+                surviving.append(b)
+                continue
+            surf = pygame.Surface((surf_sz, surf_sz), pygame.SRCALPHA)
+            cx = cy = surf_sz // 2
+
+            _A = 0.4   # global opacity scale
+            pal = b.get('pal', {'l3': (140,148,180), 'l2o': (120,110,155), 'l2i': (155,138,185), 'l1': (210,210,225)})
+
+            # ── Layer 3: trailing ring (behind) ──
+            l3_age = age - b['l3_delay']
+            if 0 < l3_age < b['l3_dur']:
+                t3 = l3_age / b['l3_dur']
+                r3 = b['l3_r0'] + (b['l3_r1'] - b['l3_r0']) * t3
+                a3 = int(160 * (1.0 - t3) * _A)
+                thick3 = max(9, min(11, int(11 * (1.0 - t3 * 0.3))))
+                for k in range(3):
+                    fade = int(a3 * (1.0 - k * 0.28))
+                    if fade <= 0:
+                        break
+                    pygame.draw.circle(surf, (*pal['l3'], fade),
+                                       (cx, cy), max(1, int(r3) + k), max(1, thick3 - k))
+
+            # ── Layer 2: primary ring ──
+            if age < b['l2_dur']:
+                t2 = age / b['l2_dur']
+                r2 = b['l2_r0'] + (b['l2_r1'] - b['l2_r0']) * t2
+                a2 = int(255 * (1.0 - t2) * _A)
+                thick2 = max(9, min(11, int(11 * (1.0 - t2 * 0.3))))
+                pygame.draw.circle(surf, (*pal['l2o'], a2),
+                                   (cx, cy), max(1, int(r2)), thick2)
+                pygame.draw.circle(surf, (*pal['l2i'], min(255, int(a2 * 1.15))),
+                                   (cx, cy), max(1, int(r2) - thick2 // 2), max(2, thick2 // 2 + 1))
+
+            # ── Layer 1: soft center flash ──
+            if age < b['l1_dur']:
+                t1 = age / b['l1_dur']
+                a1 = int(220 * (1.0 - t1) ** 1.5 * _A)
+                r1 = int(b['l1_r'] * (1.0 - t1 * 0.35))
+                if r1 > 0:
+                    pygame.draw.circle(surf, (*pal['l1'], a1), (cx, cy), r1)
+
+            self.screen.blit(surf, (x - cx, y - cy),
+                             special_flags=pygame.BLEND_RGBA_ADD)
+
+            if age < b['l3_delay'] + b['l3_dur']:
+                surviving.append(b)
+
+        self._hit_bursts = surviving
 
     def update_dynamic_scroll_speed(self, current_time: float):
         """Smoothly interpolate scroll speed based on intensity tiers + energy shifts"""
@@ -920,10 +1057,14 @@ class Game:
 
         self.update_shockwaves(dt)
         self.update_hold_particles(dt)
+        self.update_hit_bursts(dt)
 
         self.update_cat_animation()
+        hurt_surf = self.update_hurt_animation(dt)
         if self._bop_surf is not None:
             self.screen.blit(self._bop_surf, (int(self.cat_current_x), 520))
+        if hurt_surf is not None:
+            self.screen.blit(hurt_surf, (int(self.cat_current_x), 520))
         
         events = pygame.event.get()
         mouse_pos = pygame.mouse.get_pos()
@@ -973,8 +1114,12 @@ class Game:
         
         if current_char_idx != self.last_char_idx:
             if not self.used_current_char and self.last_char_idx != -1:
-                self.misses += 1
-                self.show_message("Missed!", 1)
+                # Only a real miss if the previous event was an actual note, not a rest
+                _prev = self.rhythm.beat_map[self.last_char_idx] if self.last_char_idx < len(self.rhythm.beat_map) else None
+                if _prev and not _prev.is_rest and _prev.char:
+                    self.misses += 1
+                    self.show_message("Missed!", 1)
+                    self.trigger_hurt()
             
             self.used_current_char = False
             self.last_char_idx = current_char_idx
@@ -996,10 +1141,11 @@ class Game:
 
                     self.check_drop_note_hit(current_char_idx)
 
-                    # Ripple effect at hit marker on correct press
-                    self.trigger_hit_ripple(
-                        int(self.hit_marker_current_x), 380
-                    )
+                    # Burst only on press notes; particles on all correct hits
+                    _hx, _hy = int(self.hit_marker_current_x), 380
+                    if judgment != 'hold_started':
+                        self.trigger_hit_ripple(_hx, _hy)
+                    self._spawn_hit_particles(_hx, _hy)
 
                     if judgment == 'hold_started':
                         self.show_message("HOLD...", 0.5)
@@ -1018,6 +1164,7 @@ class Game:
                         self.show_message("Wrong Key!", 0.8)
                     else:
                         self.show_message("Miss!", 0.8)
+                    self.trigger_hurt()
 
                     # Flash timeline red + tiny shake on miss/wrong
                     self._timeline_flash = 1.0
@@ -1044,6 +1191,7 @@ class Game:
                         self.score = self.rhythm.get_score()
                     else:
                         self.show_message("Hold broken!", 0.8)
+                        self.trigger_hurt()
                         self._timeline_flash = 1.0
                         self._timeline_shake_offset = 6.0
                         self.misses = self.rhythm.miss_count

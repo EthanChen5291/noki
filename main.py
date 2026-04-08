@@ -4,43 +4,31 @@ from game.models import Level
 from game.menu import MenuManager, _load_scores, _save_scores
 from game.music import MusicManager
 
-# whenever you add songs in custom, it disappears from custom and goes into canon menu after playing
+# when scrolling down, begin lerp cropping the bottom of canon / custom tab up by up to 10% (not moving it all, just taking 3% off the bottom and adjusting text as needed)
+# and move the horizontal line in which song names and stuff begin disappearing after scrolling down to the new point (where the bottom of canon/custom tab is)
+# when scrolling back up and it reaches near the top, it begins lerp stretching again to reverse
 
-# dual mode section -> no notes during first 2-3 measures for some reason (should only be grace of 1 measure)
-# can't scroll down in canon level menu
+# when in bounce mode and going in reverse, extend the timeline all the way to the left so they can see dots earlier before it comes
 
-# canon and custom tabs should be 120% larger and centered (center of the tab between the vertical line on the left and the right side of screen).
-# they should be chrome tab style where they are curvy rectangles on the top but cut off by a line on the bottom (add a horizontal line under it)
+# move progression bar to the top
 
-# hold notes shouldn't disappear the moment the user presses -> only the parts of the note that have passed the hitmarker 
-# and been pressed should disappear -> all others should still be there until they've been pressed 
-# (or, if they past the hitmarker and arne't pressed they turn red)
-# moreover some slight particles should be released around the note area whenever they're being pressed as an effect (I want a particle effect (like random particles flying from the point of impact (particles can fly anywhere from the point of impact and fading away on the hitmaker area if the user presses the key and hits the long note).)
-# in dual/bounce mode the hold notes should be reversed. if the hold note is coming from the left, right now its sprite is still arriving end of hold note first
+# make the .mov bop file png loop for transparency
 
-# moreover long hold notes during normal sections are fine especially if it's genuinely a very strong hold note (from audio analysis) 
-# but need to ensure that it doesn't overlap with other notes -> if it does, remove the other notes (and adjust the word as appropriate)
-
+# pink/light blue/ bubble colorset
+# bounce mode section not having notes at all during semi-quiet sections (unsure why)
+# can't scroll down in canon level menu with scroll bar
 
 # whenever the session slows down at the end of the level, make sure the zoom stops zooming out after a bit (so it doesnt look like the timeline is being crunched into the hitmarker)
-
-
-
-# -- underscore for words not showing up on some words
-# -- ghost letters (letters progressing without any input/circles) in ping pong mode
-# -- HARD mode causes letter skips 
 
 # animated timeline 
 # animated circles + spin explode animation when pressed
 # red circle animation for wrong
 
 # cat hurt animation (red outline)
-# upload file should not open separate menu -> should just grab file, and when file is grabbed, user can rename on the level screen
 
+# lerp the difficulties when toggling. ex if it's on easy and they press right arrow, easy lerps left and fair lerps 
+# left into view. moreover if it's on difficult or easy, keep both arrows. if they press the arrow again it just loops back to the opposite side (right arrow press on hard makes it back to easy)
 
-# HOLD NOTES -> allow some notes to be held. should be snapped to music grid, 
-# not interfere with the next note, has same limitations for spacing as the other ones. user needs to hold the entire duration (with a small grace lenient at the end for when they release)
-# can be at any letter of a sentence for any duration as long as it doesn't interfere, and should notably be included wherever the audio amplitudes stay basically the same (like if a singer is holding a note then we'd do hold note. don't force it though, only do it upon detection of these long notes but can also add shorter hold notes depending on how long the note is held)
 
 # DOUBLE TIMELINE mode timeline splits into two. has 1 second animation of the timeline splitting into two vertically (where one goes up and one goes down) so their vertical center was where the (default mode timeline was). there should be no notes for one measure during entrance just like dual mode
 # - first timeline supports left side of keyboard, second timeline right side
