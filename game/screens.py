@@ -6,6 +6,7 @@ import pygame
 import math
 import time
 import os
+import random
 import threading
 
 from .menu_utils import (
@@ -349,6 +350,19 @@ class LevelSelect:
             os.path.join(_assets, "right"), fps=30.0, scale=_eye_scale
         )
 
+        # Lick overlay animations (play once on top of base loop)
+        self._lick1_seq = PNGSequenceSprite(
+            os.path.join(_assets, "noki_lick1"), fps=30.0, scale=_body_scale
+        )
+        self._lick2_seq = PNGSequenceSprite(
+            os.path.join(_assets, "noki_lick2"), fps=30.0, scale=_body_scale
+        )
+        self._lick_playing: bool = False
+        self._active_lick: PNGSequenceSprite | None = None
+        self._lick_elapsed: float = 0.0
+        self._lick_duration: float = 0.0
+        self._lick_timer: float = random.uniform(10.0, 25.0)
+
         # ── Song list (right 65%) ────────────────────────────────────────
         # btn_x anchored close to the divider so names get maximum width.
         # diff_cx pinned near the scrollbar so there's always a fixed right margin.
@@ -596,9 +610,31 @@ class LevelSelect:
                 return "select", song_i
 
         # ── advance all PNG sequences ────────────────────────────────────
-        self._noki_loop_seq.advance(1.0 / 60.0)
-        self._leye_seq.advance(1.0 / 60.0)
-        self._reye_seq.advance(1.0 / 60.0)
+        _dt = 1.0 / 60.0
+        self._noki_loop_seq.advance(_dt)
+        self._leye_seq.advance(_dt)
+        self._reye_seq.advance(_dt)
+
+        # ── lick overlay: count down then play once on top of base loop ──
+        if self._lick_playing and self._active_lick is not None:
+            self._active_lick.advance(_dt)
+            self._lick_elapsed += _dt
+            if self._lick_elapsed >= self._lick_duration:
+                self._lick_playing = False
+                self._active_lick = None
+                self._lick_timer = random.uniform(10.0, 25.0)
+        else:
+            self._lick_timer -= _dt
+            if self._lick_timer <= 0.0:
+                candidates = [s for s in (self._lick1_seq, self._lick2_seq) if s.ready]
+                if candidates:
+                    seq = random.choice(candidates)
+                    seq._idx = 0
+                    seq._acc = 0.0
+                    self._active_lick = seq
+                    self._lick_duration = len(seq._frames) / seq.fps
+                    self._lick_elapsed = 0.0
+                    self._lick_playing = True
 
         # ── update eye tracking at 12 fps ────────────────────────────────
         self._eye_track_acc += 1.0 / 60.0
@@ -664,19 +700,30 @@ class LevelSelect:
         _btn_lift = (bh - self.upload_rect.h) // 2
         _noki_y   = self._noki_loop_bottom - _btn_lift
 
-        _body = self._noki_loop_seq.current
-        if _body is not None:
-            self.screen.blit(_body, _body.get_rect(
-                midbottom=(self._noki_loop_cx, _noki_y)
-            ))
-
-        # Eye PNG overlays — follow the mouse (offset updated at 10 fps)
-        for _eye_surf in (self._leye_seq.current, self._reye_seq.current):
-            if _eye_surf is not None:
-                self.screen.blit(_eye_surf, _eye_surf.get_rect(
-                    midbottom=(self._noki_loop_cx + self._eye_ox,
-                               _noki_y + self._eye_oy)
+        # noki_base_loop body and eyes are hidden while a lick animation plays
+        if not self._lick_playing:
+            _body = self._noki_loop_seq.current
+            if _body is not None:
+                self.screen.blit(_body, _body.get_rect(
+                    midbottom=(self._noki_loop_cx, _noki_y)
                 ))
+
+        # Lick overlay — replaces body and eyes while playing
+        if self._lick_playing and self._active_lick is not None:
+            _lick = self._active_lick.current
+            if _lick is not None:
+                self.screen.blit(_lick, _lick.get_rect(
+                    midbottom=(self._noki_loop_cx, _noki_y)
+                ))
+
+        # Eye PNG overlays — hidden while lick is playing
+        if not self._lick_playing:
+            for _eye_surf in (self._leye_seq.current, self._reye_seq.current):
+                if _eye_surf is not None:
+                    self.screen.blit(_eye_surf, _eye_surf.get_rect(
+                        midbottom=(self._noki_loop_cx + self._eye_ox,
+                                   _noki_y + self._eye_oy)
+                    ))
 
         # ── Tab lerp ─────────────────────────────────────────────────────
         target_lerp = float(self._active_tab)

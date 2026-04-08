@@ -92,7 +92,23 @@ class MenuManager:
                         fps = cap.get(cv2.CAP_PROP_FPS)
                         if fps > 0:
                             self._video_frame_dur = 1.0 / fps
-                        self._video_cap = cap
+                        # Verify the file is actually decodable by reading the
+                        # first frame; if cv2 can open but not decode the codec
+                        # (common with certain .mov variants) treat as missing.
+                        ret, _ = cap.read()
+                        if ret:
+                            # Rewind so the run-loop plays from frame 1.
+                            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                            self._video_cap = cap
+                            # Video is ready — kick off intro immediately so
+                            # there is no 2-second black waiting screen before
+                            # it plays.
+                            if self._music:
+                                self._music.start_intro()
+                            self._show_waiting = False
+                        else:
+                            cap.release()
+                            self._video_done = True
                     else:
                         self._video_done = True
                 else:
@@ -164,25 +180,36 @@ class MenuManager:
                 if not self._video_done and self._video_cap is not None:
                     import cv2  # type: ignore
                     self._video_acc += dt
-                    while self._video_acc >= self._video_frame_dur:
-                        self._video_acc -= self._video_frame_dur
+                    if self._video_acc >= self._video_frame_dur:
+                        frames_to_advance = int(self._video_acc / self._video_frame_dur)
+                        self._video_acc -= frames_to_advance * self._video_frame_dur
+                        # Seek past excess frames instead of decoding every one —
+                        # decoding many large frames per tick causes a visible freeze.
+                        if frames_to_advance > 1:
+                            cur = int(self._video_cap.get(cv2.CAP_PROP_POS_FRAMES))
+                            self._video_cap.set(
+                                cv2.CAP_PROP_POS_FRAMES, cur + frames_to_advance - 1
+                            )
                         ret, frame = self._video_cap.read()
                         if not ret:
                             self._video_cap.release()
-                            self._video_cap   = None
-                            self._video_done  = True
+                            self._video_cap  = None
+                            self._video_done = True
                             if self._music:
                                 self._music.on_intro_video_done()
-                            break
-                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        fh, fw = frame_rgb.shape[:2]
-                        surf = pygame.surfarray.make_surface(
-                            frame_rgb.transpose(1, 0, 2)
-                        )
-                        sw2, sh2 = self.screen.get_size()
-                        scaled_w = int(fw * sh2 / fh)
-                        surf = pygame.transform.smoothscale(surf, (scaled_w, sh2))
-                        self._video_last_surf = surf
+                        else:
+                            sw2, sh2 = self.screen.get_size()
+                            fh, fw = frame.shape[:2]
+                            scaled_w = max(1, int(fw * sh2 / fh))
+                            # cv2.resize is far faster than pygame.smoothscale on
+                            # high-resolution source frames.
+                            frame_small = cv2.resize(
+                                frame, (scaled_w, sh2), interpolation=cv2.INTER_LINEAR
+                            )
+                            frame_rgb = cv2.cvtColor(frame_small, cv2.COLOR_BGR2RGB)
+                            self._video_last_surf = pygame.surfarray.make_surface(
+                                frame_rgb.transpose(1, 0, 2)
+                            )
 
                     if self._video_last_surf is not None and not self._video_done:
                         sw2, sh2 = self.screen.get_size()
