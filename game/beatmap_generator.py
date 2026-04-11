@@ -66,6 +66,7 @@ def generate_beatmap(
     # Post-process: cap every hold duration so its tail never reaches the next note.
     # Uses a 200ms visual gap so bars never visually touch.
     _HOLD_VISUAL_GAP = 0.20
+    _HOLD_MIN_DUR = 0.1
     char_events = [e for e in events if not e.is_rest and e.char]
     for i, ev in enumerate(char_events):
         if ev.hold_duration <= 0:
@@ -75,6 +76,8 @@ def generate_beatmap(
             max_allowed = max(0.0, next_t - ev.timestamp - _HOLD_VISUAL_GAP)
             if ev.hold_duration > max_allowed:
                 ev.hold_duration = max_allowed
+        if ev.hold_duration < _HOLD_MIN_DUR:
+            ev.hold_duration = 0.0
 
     # ensure beatmap doesn't extend past song duration
     # and pad with a blank measure of rest at the end so the last word

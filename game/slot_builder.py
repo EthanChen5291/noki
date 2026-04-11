@@ -278,6 +278,8 @@ def assign_words_to_slots(
                         # Cap hold so it doesn't bleed into next char (leave 150ms gap)
                         max_dur = max(0.0, next_slot_time - slot.time - 0.15)
                         hold_dur = min(hr_dur, max_dur)
+                        if hold_dur < 0.1:
+                            hold_dur = 0.0
                         break
 
             events.append(M.CharEvent(
