@@ -8,5 +8,6 @@ from .title_screen       import TitleScreen
 from .level_select       import LevelSelect
 from .level_menu         import LevelMenu
 from .file_upload_screen import FileUploadScreen
+from .settings_panel     import SettingsPanel
 
-__all__ = ["TitleScreen", "LevelSelect", "LevelMenu", "FileUploadScreen"]
+__all__ = ["TitleScreen", "LevelSelect", "LevelMenu", "FileUploadScreen", "SettingsPanel"]

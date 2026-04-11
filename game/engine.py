@@ -161,7 +161,8 @@ class Game(EffectsMixin, MechanicsMixin):
                 shifts     = calculate_energy_shifts(
                     self.song_path, song.bpm, pace.pace_score, song.beat_times)
                 shake_beats = detect_climax_shake_beats(
-                    pace.pace_score, song.beat_times, tiers)
+                    pace.pace_score, song.bpm, self.song_path, song.beat_times, tiers)
+                print(f"[shake] pace_score={pace.pace_score:.3f}  bpm={song.bpm:.1f}  shake_beats={len(shake_beats)}")
                 _result.update(song=song, beat_duration=bdur, pace_profile=pace,
                                dual_side_sections=dual_secs, difficulty_profile=diff_prof,
                                rhythm=rhythm, drop_events=drops, scroll_tiers=tiers,
@@ -271,6 +272,10 @@ class Game(EffectsMixin, MechanicsMixin):
         self.scroll_tiers          = _result['scroll_tiers']
         self.energy_shifts         = _result['energy_shifts']
         self._climax_shake_beats   = _result['climax_shake_beats']  # [(song_time, intensity), ...]
+        # Only allow shaking after the first 20% of the song has passed
+        if self._climax_shake_beats and self.song.beat_times:
+            _cutoff = self.song.beat_times[-1] * 0.20
+            self._climax_shake_beats = [(t, i) for t, i in self._climax_shake_beats if t >= _cutoff]
         self._climax_shake_idx     = 0
 
         # --- screen shake state ---
@@ -676,9 +681,12 @@ class Game(EffectsMixin, MechanicsMixin):
             self._enter_pause()
             return
 
-        # ── apply screen shake (copies rendered frame, offsets the whole screen) ──
+        # ── apply screen shake (rotation with per-frame roughness noise) ────────
         self.update_screen_shake(dt)
-        if abs(self._shake_x) > 0.3:
-            _snap = self.screen.copy()
+        if abs(self._shake_x) > 0.05:
+            import random as _rnd
+            angle   = self._shake_x + _rnd.uniform(-0.18, 0.18)
+            _snap   = self.screen.copy()
+            rotated = pygame.transform.rotate(_snap, angle)
             self.screen.fill((0, 0, 0))
-            self.screen.blit(_snap, (int(self._shake_x), 0))
+            self.screen.blit(rotated, rotated.get_rect(center=self.screen.get_rect().center))

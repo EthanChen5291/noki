@@ -47,7 +47,7 @@ class MenuManager:
         for _cs in _load_custom_songs():
             if _cs not in self.song_names:
                 self.song_names.insert(0, _cs)
-        self.title_screen       = TitleScreen(screen)
+        self.title_screen       = TitleScreen(screen, music)
         self.level_select       = LevelSelect(screen, song_names, self._scores,
                                               canon_names=self._canon_names)
         self.file_upload_screen = FileUploadScreen(screen)

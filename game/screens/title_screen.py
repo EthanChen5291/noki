@@ -8,6 +8,7 @@ Responsibilities:
   - Return "play" when the click animation completes
 """
 from __future__ import annotations
+import math
 import os
 import pygame
 
@@ -20,6 +21,7 @@ from ._constants import (
     BOP_PLAYBACK_SPEED,
 )
 from ._video import VideoPlayer
+from .settings_panel import SettingsPanel
 
 _ASSETS = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
@@ -28,8 +30,9 @@ _ASSETS = os.path.join(
 
 
 class TitleScreen:
-    def __init__(self, screen: pygame.Surface) -> None:
+    def __init__(self, screen: pygame.Surface, music=None) -> None:
         self.screen = screen
+        self._music = music
         sw, sh = screen.get_size()
 
         # ── Title image ───────────────────────────────────────────────────────
@@ -60,6 +63,18 @@ class TitleScreen:
 
         self._scale       = 1.0
         self._click_phase: str | None = None  # None | "shrink" | "bounce"
+
+        # ── Settings circle (left of play button, same height) ────────────────
+        _gap = int(btn_size * 0.32)
+        _total = btn_size * 2 + _gap
+        _orig_cx = self.btn_cx
+        self._settings_cx = _orig_cx - _total // 2 + btn_size // 2
+        self.btn_cx       = _orig_cx + _total // 2 - btn_size // 2
+        self._settings_cy = self.btn_cy
+        self._settings_r  = btn_size // 2   # same radius as play button
+        self._settings_scale  = 1.0
+        self._settings_hovered = False
+        self._settings_panel: SettingsPanel | None = None
 
         # Exposed so MenuManager can use it as the transition origin
         self.play_button_rect = pygame.Rect(
@@ -102,6 +117,9 @@ class TitleScreen:
         self._title_scale_target = 1.0
         self._scale              = 1.0
         self._click_phase        = None
+        self._settings_scale     = 1.0
+        self._settings_hovered   = False
+        self._settings_panel     = None
         self._video.reset()
 
     def update(self, dt: float, mouse_pos: tuple, mouse_clicked: bool,
@@ -110,6 +128,25 @@ class TitleScreen:
         Advance all animation state.
         Returns "play" when the click animation finishes; None otherwise.
         """
+        # Settings panel takes priority when open
+        if self._settings_panel is not None:
+            result = self._settings_panel.update(dt, mouse_pos, mouse_clicked)
+            if result == "close":
+                self._settings_panel = None
+            self._video.update(dt * BOP_PLAYBACK_SPEED)
+            return None
+
+        # Settings circle hover + click
+        self._settings_hovered = self._settings_hovered_check(mouse_pos)
+        if mouse_clicked and self._settings_hovered:
+            origin = pygame.Rect(
+                self._settings_cx - self._settings_r,
+                self._settings_cy - self._settings_r,
+                self._settings_r * 2, self._settings_r * 2,
+            )
+            self._settings_panel = SettingsPanel(self.screen, self._music, origin)
+            return None
+
         hovered = self._btn_hovered(mouse_pos)
 
         if mouse_clicked and hovered and self._click_phase is None:
@@ -163,12 +200,41 @@ class TitleScreen:
         btn_surf  = pygame.transform.smoothscale(self._btn_base, (disp_size, disp_size))
         self.screen.blit(btn_surf, btn_surf.get_rect(center=(self.btn_cx, self.btn_cy)))
 
+        # Settings circle
+        sr = max(1, int(self._settings_r * self._settings_scale))
+        cx, cy = self._settings_cx, self._settings_cy
+        pygame.draw.circle(self.screen, (18, 18, 28), (cx, cy), sr)
+        outline_col = (220, 220, 220) if self._settings_hovered else (160, 160, 160)
+        pygame.draw.circle(self.screen, outline_col, (cx, cy), sr, 2)
+        # Gear hint: small inner ring + 6 tick marks
+        inner_r = max(2, sr // 3)
+        pygame.draw.circle(self.screen, outline_col, (cx, cy), inner_r, 1)
+        for i in range(6):
+            angle = math.radians(i * 60)
+            tick_inner = sr - sr // 4
+            tick_outer = sr - 2
+            x1 = int(cx + tick_inner * math.cos(angle))
+            y1 = int(cy + tick_inner * math.sin(angle))
+            x2 = int(cx + tick_outer * math.cos(angle))
+            y2 = int(cy + tick_outer * math.sin(angle))
+            pygame.draw.line(self.screen, outline_col, (x1, y1), (x2, y2), 2)
+
+        # Settings panel (on top of everything)
+        if self._settings_panel is not None:
+            self._settings_panel.draw()
+
     # ── Private helpers ───────────────────────────────────────────────────────
 
     def _btn_hovered(self, mouse_pos: tuple) -> bool:
         half = int(self._btn_size * self._scale) // 2
         r = pygame.Rect(self.btn_cx - half, self.btn_cy - half, half * 2, half * 2)
         return r.collidepoint(mouse_pos)
+
+    def _settings_hovered_check(self, mouse_pos: tuple) -> bool:
+        sr = int(self._settings_r * self._settings_scale)
+        dx = mouse_pos[0] - self._settings_cx
+        dy = mouse_pos[1] - self._settings_cy
+        return dx * dx + dy * dy <= sr * sr
 
     def _update_click_animation(self, dt: float, hovered: bool) -> str | None:
         """Drive shrink → bounce.  Returns 'play' when the bounce finishes."""
@@ -208,3 +274,7 @@ class TitleScreen:
         # Lerp button scale toward hover/rest target
         base_target = BTN_HOVER_SCALE if hovered else 1.0
         self._scale += (base_target - self._scale) * min(1.0, BTN_LERP_NORMAL * dt)
+
+        # Settings circle hover scale
+        s_target = 1.08 if self._settings_hovered else 1.0
+        self._settings_scale += (s_target - self._settings_scale) * min(1.0, BTN_LERP_NORMAL * dt)

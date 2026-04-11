@@ -1130,51 +1130,81 @@ def detect_shake_sections( #idk if im gonna use this
 
 def detect_climax_shake_beats(
     pace_score: float,
+    bpm: float,
+    audio_path: str,
     aligned_beat_times: list[float],
     scroll_tiers: list[tuple[float, float, float]],
 ) -> list[tuple[float, float]]:
     """
     Return (beat_time, intensity_0_to_1) pairs for beats that should trigger
-    a screen shake. Only used for energetic songs (pace_score >= 0.42).
+    a screen-rotation shake.
 
-    Uses the already-computed scroll_tiers so no audio re-load is needed.
-    Shakes fire every 2 beats for very energetic songs (pace_score >= 0.62),
-    every 4 beats for moderately energetic ones.
+    Only fires for genuinely active songs (pace_score >= 0.65).  Calm songs
+    get nothing — no fallback, no every-measure default.
 
-    intensity_0_to_1 encodes how loud the section is relative to the loudest
-    climax section — drives shake magnitude in the renderer.
+    For qualifying songs, shake beats are derived from two sources:
+      1. Large onsets — beats whose onset strength is in the top 15 % of the
+         song AND falls inside a climax section (top-35 % by scroll multiplier).
+      2. Section downbeats — the first beat of each climax section, regardless
+         of per-beat onset strength, so the shake always lands on the drop.
+
+    Intensity is onset strength normalised to [0, 1] relative to the song peak.
     """
-    if pace_score < 0.42 or not aligned_beat_times or not scroll_tiers:
+    if pace_score <= 0.50 or not aligned_beat_times or not scroll_tiers:
         return []
 
-    mults = [m for _, _, m in scroll_tiers]
-    if not mults:
-        return []
-
-    min_mult = float(min(mults))
-    max_mult = float(max(mults))
+    # ── Identify climax sections (top 35 % by scroll multiplier) ─────────────
+    mults     = [m for _, _, m in scroll_tiers]
+    max_mult  = float(max(mults))
+    min_mult  = float(min(mults))
     mult_range = max_mult - min_mult
     if mult_range < 1e-6:
         return []
 
-    # Threshold: sections above the 60th-percentile multiplier get shakes.
-    sorted_mults = sorted(mults)
-    p60 = sorted_mults[max(0, int(len(sorted_mults) * 0.60) - 1)]
+    threshold = sorted(mults)[max(0, int(len(mults) * 0.65) - 1)]
+    climax_sections = [(s, e) for s, e, m in scroll_tiers if m >= threshold]
+    if not climax_sections:
+        return []
 
-    stride = 2 if pace_score >= 0.62 else 4   # beats between shake triggers
+    def _in_climax(t: float) -> bool:
+        return any(s <= t < e for s, e in climax_sections)
 
-    result: list[tuple[float, float]] = []
-    i = 0
-    while i < len(aligned_beat_times):
-        bt = aligned_beat_times[i]
-        for t_start, t_end, mult in scroll_tiers:
-            if t_start <= bt < t_end:
-                if mult >= p60:
-                    intensity = (mult - min_mult) / mult_range   # 0–1
-                    result.append((bt, float(intensity)))
-                break
-        i += stride
+    # ── Per-beat onset strengths ──────────────────────────────────────────────
+    y, sr       = librosa.load(audio_path, sr=None)
+    onset_env   = librosa.onset.onset_strength(y=y, sr=sr)
+    onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr)
+    beat_arr    = np.array(aligned_beat_times)
 
-    return result
+    beat_strengths: list[float] = []
+    for i, bt in enumerate(beat_arr):
+        end = beat_arr[i + 1] if i + 1 < len(beat_arr) else bt + 60.0 / bpm
+        mask = (onset_times >= bt) & (onset_times < end)
+        beat_strengths.append(float(onset_env[mask].max()) if np.any(mask) else 0.0)
+
+    peak_strength = max(beat_strengths) if beat_strengths else 1.0
+    if peak_strength < 1e-6:
+        return []
+
+    # Top-15 % onset threshold (within the full song, not just climax sections)
+    onset_threshold = float(np.percentile(beat_strengths, 85))
+
+    # ── Build shake beat set ──────────────────────────────────────────────────
+    result_dict: dict[float, float] = {}
+
+    # Source 1: large onsets inside climax sections
+    for bt, strength in zip(aligned_beat_times, beat_strengths):
+        if strength >= onset_threshold and _in_climax(bt):
+            result_dict[bt] = strength / peak_strength
+
+    # Source 2: first beat of each climax section (the drop moment)
+    for s_start, s_end in climax_sections:
+        first_beat = next(
+            (bt for bt in aligned_beat_times if s_start <= bt < s_end), None
+        )
+        if first_beat is not None and first_beat not in result_dict:
+            idx = aligned_beat_times.index(first_beat)
+            result_dict[first_beat] = beat_strengths[idx] / peak_strength
+
+    return sorted(result_dict.items())
 
 # get silence

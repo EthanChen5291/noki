@@ -14,7 +14,7 @@ import pygame
 
 from ..menu_utils import _FONT
 from ..ui_components import DifficultySelector
-from ._constants import LEVEL_MENU_ANIM_DUR, BTN_LERP_HOVER
+from ._constants import LEVEL_MENU_ANIM_DUR, BTN_LERP_HOVER, BTN_LERP_FAST
 
 _ASSETS = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
@@ -66,6 +66,16 @@ class LevelMenu:
         dummy_font    = pygame.font.Font(_FONT, sub_sz)
         self._diff    = DifficultySelector(0, 0, dummy_font)
         self._diff.selected = max(0, min(2, initial_diff_idx))
+
+        # Difficulty slide animation state (uses big_font for the label)
+        self._diff_slide: float = 0.0           # incoming label x offset (lerps → 0)
+        self._diff_prev_label: str | None = None
+        self._diff_prev_color: tuple | None = None
+        self._diff_prev_slide: float = 0.0      # outgoing label x offset (lerps away)
+        self._diff_prev_exit_dir: int = 1       # stored direction so lerp never oscillates
+        self._diff_slide_max: float = max(
+            self._big_font.size(l.upper())[0] for l in DifficultySelector.LABELS
+        ) * 1.4
 
         self._left_arrow_rect:  pygame.Rect | None = None
         self._right_arrow_rect: pygame.Rect | None = None
@@ -172,23 +182,35 @@ class LevelMenu:
         label     = DifficultySelector.LABELS[self._diff.selected].upper()
         diff_surf = self._big_font.render(label, True, diff_col)
         diff_y    = self._body_cy - int(self._ph * 0.06)
-        _blit_a(diff_surf, diff_surf.get_rect(center=(left_cx, diff_y)))
+
+        # Clip to left half so sliding labels don't bleed into the score panel
+        old_clip = self.screen.get_clip()
+        clip_x   = fpx + 2
+        clip_w   = self._mid_x - fpx - 2
+        self.screen.set_clip(pygame.Rect(clip_x, fpy + self._top_h, clip_w, self._ph))
+
+        # Outgoing label
+        if self._diff_prev_label is not None:
+            prev_col  = tuple(int(c * at) for c in self._diff_prev_color)
+            prev_surf = self._big_font.render(self._diff_prev_label, True, prev_col)
+            ps = prev_surf.copy(); ps.set_alpha(content_alpha)
+            self.screen.blit(ps, ps.get_rect(center=(int(left_cx + self._diff_prev_slide), diff_y)))
+
+        # Incoming (current) label
+        s = diff_surf.copy(); s.set_alpha(content_alpha)
+        self.screen.blit(s, s.get_rect(center=(int(left_cx + self._diff_slide), diff_y)))
+
+        self.screen.set_clip(old_clip)
 
         arrow_y   = diff_y + diff_surf.get_height() // 2 + 28
         arrow_gap = 44
         a_col     = tuple(int(180 * at) for _ in range(3))
 
-        if self._diff.selected > 0:
-            self._draw_tri(self.screen, a_col, left_cx - arrow_gap, arrow_y, "left")
-            self._left_arrow_rect = pygame.Rect(left_cx - arrow_gap - 22, arrow_y - 18, 44, 36)
-        else:
-            self._left_arrow_rect = None
-
-        if self._diff.selected < 2:
-            self._draw_tri(self.screen, a_col, left_cx + arrow_gap, arrow_y, "right")
-            self._right_arrow_rect = pygame.Rect(left_cx + arrow_gap - 22, arrow_y - 18, 44, 36)
-        else:
-            self._right_arrow_rect = None
+        # Always show both arrows (wrap-around)
+        self._draw_tri(self.screen, a_col, left_cx - arrow_gap, arrow_y, "left")
+        self._left_arrow_rect = pygame.Rect(left_cx - arrow_gap - 22, arrow_y - 18, 44, 36)
+        self._draw_tri(self.screen, a_col, left_cx + arrow_gap, arrow_y, "right")
+        self._right_arrow_rect = pygame.Rect(left_cx + arrow_gap - 22, arrow_y - 18, 44, 36)
 
         # Right half: best score
         right_cx = fpx + fpw * 3 // 4
@@ -238,13 +260,20 @@ class LevelMenu:
                 self._closing = True
                 return None
             if self._left_arrow_rect and self._left_arrow_rect.collidepoint(mouse_pos):
-                if self._diff.selected > 0:
-                    self._diff.selected -= 1
+                self._diff_go(-1)
             elif self._right_arrow_rect and self._right_arrow_rect.collidepoint(mouse_pos):
-                if self._diff.selected < 2:
-                    self._diff.selected += 1
+                self._diff_go(1)
 
         return None
+
+    def _diff_go(self, direction: int) -> None:
+        """Advance difficulty by ±1 with wrap-around and slide animation."""
+        self._diff_prev_label    = DifficultySelector.LABELS[self._diff.selected].upper()
+        self._diff_prev_color    = DifficultySelector.COLORS[self._diff.selected]
+        self._diff_prev_slide    = 0.0
+        self._diff_prev_exit_dir = -direction   # outgoing exits opposite to the click
+        self._diff.selected = (self._diff.selected + direction) % 3
+        self._diff_slide = direction * self._diff_slide_max  # incoming enters from click side
 
     def _update_animation(self, dt: float):
         """Advance open/close elapsed time and lerp the play-button scale."""
@@ -255,6 +284,18 @@ class LevelMenu:
 
         target = 1.05 if self._play_hovered else 1.0
         self._play_scale += (target - self._play_scale) * min(1.0, BTN_LERP_HOVER * dt)
+
+        # Advance difficulty slide animation
+        spd = min(1.0, BTN_LERP_FAST * dt)
+        self._diff_slide += (0.0 - self._diff_slide) * spd
+        if abs(self._diff_slide) < 0.5:
+            self._diff_slide = 0.0
+
+        if self._diff_prev_label is not None:
+            target_prev = self._diff_prev_exit_dir * self._diff_slide_max
+            self._diff_prev_slide += (target_prev - self._diff_prev_slide) * spd
+            if abs(self._diff_prev_slide - target_prev) < 1.5:
+                self._diff_prev_label = None
 
     def _anim_t(self) -> float:
         """Animation progress: 0 → 1 while opening, 1 → 0 while closing."""

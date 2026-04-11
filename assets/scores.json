@@ -9,7 +9,7 @@
   },
   "Scorpion.mp3": {
     "classic": 103400,
-    "master": 74240
+    "master": 89250
   },
   "Catch Catch.mp3": {
     "classic": 73216,
@@ -22,7 +22,7 @@
     "classic": 55272
   },
   "Decisive Battle.mp3": {
-    "master": 83302
+    "master": 95003
   },
   "ICARIUS.mp3": {
     "classic": 103501,
@@ -67,5 +67,8 @@
   },
   "heartmev2 - Flow 1.wav": {
     "master": 49310
+  },
+  "Borislav Slavov - Baldur's Gate 3 OST - Raphael's Theme.mp3": {
+    "master": 56161
   }
 }

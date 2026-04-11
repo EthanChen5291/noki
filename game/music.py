@@ -142,3 +142,18 @@ class MusicManager:
         self._state = self._pre_game or self._LEVELS_LOOP
         self._ch0.unpause()
         self._ch1.unpause()
+
+    # ── Volume control ───────────────────────────────────────────────────────
+
+    @property
+    def volume(self) -> float:
+        return self._MASTER
+
+    @volume.setter
+    def volume(self, v: float) -> None:
+        self._MASTER = max(0.0, min(1.0, v))
+        if self._state in (self._INTRO, self._TITLE):
+            self._ch0.set_volume(self._MASTER)
+        elif self._state == self._LEVELS_LOOP:
+            self._ch1.set_volume(self._MASTER)
+        # During crossfade the lerp in update() applies _MASTER each frame

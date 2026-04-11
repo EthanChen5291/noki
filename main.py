@@ -35,15 +35,11 @@ from game.music import MusicManager
 
 # recreate speedup/slowdown/bounce mode/dual mode art
 
-#add a settings logo (just make it a circle for now) in the main title screen to the left of the play button (and shift the play button as needed). this setting opens up a curved rectangle box with black bg and white outlines (similar to individual level menu) with a volume bar slider. there should be more space but empty for now (eventually will add)
-
-# speed up + bounce mode causes the timeline to go in the opposite direction (like timeline is going left and particles are coming from right)
+#speed up + bounce mode causes the timeline to go in the opposite direction (like timeline is going left and particles are coming from right)
 
 # when in bounce mode and going in reverse, extend the timeline all the way to the left so they can see dots earlier before it comes
 
-# move progression bar to the top
-
-# make the .mov bop file png loop for transparency
+#make the .mov bop file png loop for transparency
 
 # pink/light blue/ bubble colorset
 # bounce mode section not having notes at all during semi-quiet sections (unsure why)
@@ -57,8 +53,6 @@ from game.music import MusicManager
 
 # cat hurt animation (red outline)
 
-# lerp the difficulties when toggling. ex if it's on easy and they press right arrow, easy lerps left and fair lerps 
-# left into view. moreover if it's on difficult or easy, keep both arrows. if they press the arrow again it just loops back to the opposite side (right arrow press on hard makes it back to easy)
 
 
 # DOUBLE TIMELINE mode timeline splits into two. has 1 second animation of the timeline splitting into two vertically (where one goes up and one goes down) so their vertical center was where the (default mode timeline was). there should be no notes for one measure during entrance just like dual mode

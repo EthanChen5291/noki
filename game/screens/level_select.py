@@ -71,6 +71,11 @@ class LevelSelect:
         self._active_tab = 0
         self._tab_lerp   = 0.0
 
+        # Tab crop on scroll: 0 = full height, 1 = 10% shorter at bottom
+        self._tab_crop_t     = 0.0
+        _TAB_CROP_SPEED      = 6.0   # lerp speed (units/sec)
+        self._TAB_CROP_SPEED = _TAB_CROP_SPEED
+
         # ── Scrollbar ─────────────────────────────────────────────────────────
         self._sb_w      = LS_SCROLLBAR_W
         self._sb_margin = LS_SCROLLBAR_MARGIN
@@ -206,6 +211,8 @@ class LevelSelect:
         self._tab_underline_y = int(self.list_top * 0.75) + int(sh * 0.03)
         tab_top = 8 + int(sh * 0.03)
         tab_h   = self._tab_underline_y - tab_top
+        self._tab_full_h  = tab_h          # natural height, never mutated
+        self._tab_top     = tab_top        # top edge, never mutated
         tab_w   = min(int(tab_panel_w * 0.38), 325)
         tab_gap = 10
         tabs_left = tab_panel_x + (tab_panel_w - (2 * tab_w + tab_gap)) // 2
@@ -213,6 +220,18 @@ class LevelSelect:
             self._tab_rects.append(pygame.Rect(
                 tabs_left + t * (tab_w + tab_gap), tab_top, tab_w, tab_h,
             ))
+
+    # ── Tab crop helpers ──────────────────────────────────────────────────────
+
+    @property
+    def _tab_current_h(self) -> int:
+        """Live tab height after scroll-crop is applied (full → 90 % at max crop)."""
+        return max(1, int(self._tab_full_h * (1.0 - 0.10 * self._tab_crop_t)))
+
+    @property
+    def _list_top_vis(self) -> int:
+        """Y coordinate where the song list clip and hit-test begin (moves with tab crop)."""
+        return self._tab_top + self._tab_current_h + 2   # +2 for underline
 
     # ── Scroll helpers (used by MenuManager) ──────────────────────────────────
 
@@ -367,12 +386,18 @@ class LevelSelect:
                     t = (mouse_pos[1] - self._sb_y) / self._sb_h
                     self.scroll_offset = int(t * ms)
 
-        # Song row hit-testing
-        row_h = self.button_height + self.button_spacing
+        # Song row hit-testing — rows obscured by the tab area are not interactive
+        row_h        = self.button_height + self.button_spacing
+        list_top_vis = self._list_top_vis
         for row, song_i in enumerate(self._tab_indices[self._active_tab]):
             btn      = self.level_buttons[song_i]
             row_y    = self.list_top + row * row_h - self.scroll_offset
             btn_rect = pygame.Rect(btn.rect.x, row_y, btn.rect.w, btn.rect.h)
+            # Block interaction for rows still behind the tab / underline area
+            if btn_rect.bottom <= list_top_vis:
+                btn.is_hovered    = False
+                btn._target_scale = 1.0
+                continue
             hovered  = btn_rect.collidepoint(mouse_pos)
             btn.is_hovered    = hovered
             btn._target_scale = 1.08 if hovered else 1.0
@@ -436,6 +461,10 @@ class LevelSelect:
     def _update_tab_animation(self, dt: float):
         target = float(self._active_tab)
         self._tab_lerp += (target - self._tab_lerp) * min(1.0, TAB_LERP_SPEED * dt)
+
+        # Crop the tab bottom when the list is scrolled down; restore when back at top
+        crop_target = 1.0 if self.scroll_offset > 4 else 0.0
+        self._tab_crop_t += (crop_target - self._tab_crop_t) * min(1.0, self._TAB_CROP_SPEED * dt)
 
     def _update_rename_push(self, dt: float):
         """Smoothstep songs below the rename slot down (+1) or back up (-1)."""
@@ -523,13 +552,15 @@ class LevelSelect:
                     ))
 
     def _draw_tabs(self, sw):
-        ul_y   = self._tab_underline_y
+        # Live bottom edge of the tab (crops upward as scroll_offset increases)
+        cur_h  = self._tab_current_h
+        ul_y   = self._tab_top + cur_h   # underline follows the cropped bottom
         radius = 12
 
         def _chrome_tab(surf, rect, bg_col, bord_col):
             """Rounded top corners, flat / open bottom."""
             x, y, w, h = rect.x, rect.y, rect.width, rect.height
-            r = radius
+            r = min(radius, h // 2)
             pygame.draw.rect(surf, bg_col, rect, border_radius=r)
             pygame.draw.rect(surf, bg_col, pygame.Rect(x, y + h - r, w, r))
             pts: list[tuple[float, float]] = [
@@ -551,15 +582,17 @@ class LevelSelect:
             bg_r     = int(18 + 40 * hi)
             bg_col   = (bg_r, bg_r, bg_r + 10)
             bord_col = (int(55 + 130 * hi),) * 3
-            _chrome_tab(self.screen, tr, bg_col, bord_col)
+            # Use a cropped rect so the tab shrinks from the bottom
+            draw_rect = pygame.Rect(tr.x, tr.y, tr.w, cur_h)
+            _chrome_tab(self.screen, draw_rect, bg_col, bord_col)
             txt_col = (int(170 + 85 * hi),) * 3
             ts = self._tab_font.render(label, True, txt_col)
-            self.screen.blit(ts, ts.get_rect(center=tr.center))
+            self.screen.blit(ts, ts.get_rect(center=draw_rect.center))
 
-        # Full-width underline
+        # Full-width underline (tracks cropped bottom)
         pygame.draw.line(self.screen, (70, 70, 80), (self._tab_div_x, ul_y), (sw, ul_y), 2)
 
-        # Erase the underline segment under the active tab to make it look "open"
+        # Erase the underline segment under the active tab to look "open"
         ai      = int(round(self._tab_lerp))
         atr     = self._tab_rects[ai]
         hi_a    = (1.0 - self._tab_lerp) if ai == 0 else self._tab_lerp
@@ -568,7 +601,8 @@ class LevelSelect:
         pygame.draw.line(self.screen, e_col, (atr.left + 3, ul_y), (atr.right - 3, ul_y), 3)
 
     def _draw_song_list(self, sw, sh, div_x, current_time):
-        scroll_clip    = pygame.Rect(div_x + 1, self.list_top - 10, sw, sh - self.list_top)
+        list_top_vis   = self._list_top_vis
+        scroll_clip    = pygame.Rect(div_x + 1, list_top_vis, sw, sh - list_top_vis)
         self.screen.set_clip(scroll_clip)
 
         push_offset    = int(self._rename_push_px * self._rename_push_t)

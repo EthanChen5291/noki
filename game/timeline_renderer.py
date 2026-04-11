@@ -230,31 +230,48 @@ class TimelineRenderer:
                 if timeline_start_x <= obs_x <= timeline_end_x:
                     self.draw_bounce_obstacle(int(obs_x), timeline_y)
 
-        # --- progress bar
-        progress_bar_x = timeline_start_x - 30
-        progress_bar_height = 200
-        progress_bar_width = 8
-        progress_bar_top = timeline_y - progress_bar_height // 2
-        progress_bar_bottom = timeline_y + progress_bar_height // 2
+        # --- progress bar (horizontal, top of screen)
+        sw = g.screen.get_width()
+        bar_y = 42
+        bar_height = 20
+        bar_width = int((sw - 80) * 0.32)
+        word_center_x = sw // 2 + 30   # matches WordRenderer center_x (center_offset = base_char_spacing/2)
+        bar_x = word_center_x - bar_width // 2
+        border_r = 8
 
         total_notes = len(g.rhythm.beat_map)
         level_progress = min(1.0, g.rhythm.char_event_idx / total_notes) if total_notes > 0 else 0.0
 
-        pygame.draw.rect(
-            g.screen,
-            (40, 40, 40),
-            (progress_bar_x - progress_bar_width // 2, progress_bar_top,
-             progress_bar_width, progress_bar_height),
-            border_radius=4,
-        )
+        # Background track
+        pygame.draw.rect(g.screen, (25, 28, 40), (bar_x, bar_y, bar_width, bar_height), border_radius=border_r)
 
-        filled_height = int(progress_bar_height * level_progress)
-        if filled_height > 0:
-            pygame.draw.rect(
-                g.screen,
-                (100, 200, 255),
-                (progress_bar_x - progress_bar_width // 2,
-                 progress_bar_bottom - filled_height,
-                 progress_bar_width, filled_height),
-                border_radius=4,
-            )
+        # Filled portion with diagonal stripe pattern
+        filled_width = int(bar_width * level_progress)
+        if filled_width > 0:
+            # Build stripe pattern on an SRCALPHA surface
+            fill_surf = pygame.Surface((filled_width, bar_height), pygame.SRCALPHA)
+            fill_surf.fill((100, 200, 255, 255))  # light blue base
+
+            # Diagonal slightly darker blue stripes (45-degree parallelograms)
+            stripe_spacing = 18
+            stripe_width = 9
+            dark_blue = (60, 145, 215, 255)
+            for sx in range(-bar_height, filled_width + bar_height, stripe_spacing):
+                pts = [
+                    (sx, 0),
+                    (sx + stripe_width, 0),
+                    (sx + stripe_width + bar_height, bar_height),
+                    (sx + bar_height, bar_height),
+                ]
+                pygame.draw.polygon(fill_surf, dark_blue, pts)
+
+            # Clip to rounded-rect shape using a white mask + BLEND_RGBA_MIN
+            mask_surf = pygame.Surface((filled_width, bar_height), pygame.SRCALPHA)
+            mask_surf.fill((0, 0, 0, 0))
+            pygame.draw.rect(mask_surf, (255, 255, 255, 255), (0, 0, filled_width, bar_height), border_radius=border_r)
+            fill_surf.blit(mask_surf, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+
+            g.screen.blit(fill_surf, (bar_x, bar_y))
+
+        # White border
+        pygame.draw.rect(g.screen, (255, 255, 255), (bar_x, bar_y, bar_width, bar_height), width=3, border_radius=border_r)

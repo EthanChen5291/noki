@@ -34,44 +34,45 @@ class EffectsMixin:
     _shake_step_elapsed: float
 
     def _trigger_screen_shake(self, intensity: float) -> None:
-        """Generate an organic left-right shake sequence keyed to intensity (0–1).
+        """Generate a rotational shake sequence keyed to intensity (0–1).
 
-        Each call resets the sequence so the shake always stays beat-synced.
-        Sequence: 2–4 alternating directional steps of varying magnitude, then
-        a short return-to-zero step.
+        Each call resets the sequence so the shake stays beat-synced.
+        _shake_x holds the current rotation angle in degrees; per-frame
+        roughness noise is added by the renderer.
+
+        Sequence: 2–4 alternating tilt steps, then a return-to-zero step.
         """
         import random as _rnd
 
-        mag = 4.0 + intensity * 14.0      # 4–18 px peak displacement
+        mag     = 0.36 + intensity * 1.32  # 0.36–1.68 degrees peak rotation (−40 %)
         n_steps = _rnd.randint(2, 4)
         direction = _rnd.choice((-1, 1))
 
         seq: list[tuple[float, float]] = []
         for k in range(n_steps):
-            step_mag = mag * _rnd.uniform(0.50, 1.00) * (0.82 ** k)
-            step_dur = _rnd.uniform(0.055, 0.100)
+            step_mag = mag * _rnd.uniform(0.55, 1.00) * (0.78 ** k)
+            step_dur = _rnd.uniform(0.055, 0.095)
             seq.append((direction * step_mag, step_dur))
             direction = -direction
 
-        seq.append((0.0, 0.065))          # snap back to centre
+        seq.append((0.0, 0.060))          # return to upright
 
         self._shake_sequence = seq
         self._shake_seq_idx = 0
         self._shake_step_elapsed = 0.0
 
     def update_screen_shake(self, dt: float) -> None:
-        """Advance the shake sequence and update _shake_x each frame."""
+        """Advance the shake sequence and update _shake_x (degrees) each frame."""
         if self._shake_seq_idx >= len(self._shake_sequence):
-            # Dampen residual offset back to zero
-            if abs(self._shake_x) > 0.2:
+            # Dampen residual angle back to zero
+            if abs(self._shake_x) > 0.01:
                 self._shake_x *= max(0.0, 1.0 - dt * 22.0)
             else:
                 self._shake_x = 0.0
             return
 
-        target_x, step_dur = self._shake_sequence[self._shake_seq_idx]
-        # Chase target quickly within each step
-        self._shake_x += (target_x - self._shake_x) * min(1.0, dt * 28.0)
+        target_angle, step_dur = self._shake_sequence[self._shake_seq_idx]
+        self._shake_x += (target_angle - self._shake_x) * min(1.0, dt * 28.0)
         self._shake_step_elapsed += dt
         if self._shake_step_elapsed >= step_dur:
             self._shake_step_elapsed -= step_dur
