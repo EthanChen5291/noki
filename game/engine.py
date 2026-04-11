@@ -33,6 +33,7 @@ from .mechanics import MechanicsMixin, BounceEvent
 from .word_renderer import WordRenderer
 from .timeline_renderer import TimelineRenderer
 from .note_renderer import NoteRenderer
+from .edge_glitch import EdgeGlitchRenderer
 
 pygame.init()
 
@@ -380,6 +381,8 @@ class Game(EffectsMixin, MechanicsMixin):
         self.word_renderer = WordRenderer(self)
         self.timeline_renderer = TimelineRenderer(self)
         self.note_renderer = NoteRenderer(self)
+        sw, sh = self.screen.get_size()
+        self._edge_glitch = EdgeGlitchRenderer(sw, sh)
 
         # --- play music ---
         pygame.mixer.init()
@@ -698,3 +701,10 @@ class Game(EffectsMixin, MechanicsMixin):
             rotated = pygame.transform.rotate(_snap, angle)
             self.screen.fill((0, 0, 0))
             self.screen.blit(rotated, rotated.get_rect(center=self.screen.get_rect().center))
+
+        self._edge_glitch.apply(
+            self.screen,
+            int(self.timeline_current_start),
+            int(self.timeline_current_end),
+            int(time.perf_counter() * 30),
+        )
