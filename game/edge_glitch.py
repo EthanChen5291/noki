@@ -31,12 +31,13 @@ import pygame
 
 # ── Tuning ────────────────────────────────────────────────────────────────────
 
-STRIP_H     = 5       # scanline strip height in pixels
-N_COLS      = 3       # horizontal subdivisions per strip (1–4 are useful values)
+STRIP_H     = 8       # scanline strip height in pixels (larger = squarer pixels)
 MAX_CURVE   = 30      # max downward Y offset at the timeline edge (pixels)
 MAX_SCATTER = 18      # max ± stochastic Y offset at the timeline edge (pixels)
 DISSOLVE_K  = 0.68    # t at which dissolve begins (0–1)
 EDGE_FRAC   = 1 / 15  # fraction of timeline width per edge zone
+# N_COLS is now computed dynamically as max(1, ew // STRIP_H) so each pixel
+# is approximately STRIP_H × STRIP_H (square).
 
 
 class EdgeGlitchRenderer:
@@ -68,8 +69,9 @@ class EdgeGlitchRenderer:
 
         # Pre-bake noise once.  Table is large enough that (row, col, seed)
         # combinations don't visibly repeat within a typical play session.
+        # Use a generous size since N_COLS is now dynamic (up to ~zone_w/STRIP_H).
         n_strips = math.ceil(screen_h / STRIP_H)
-        self._noise = _bake_noise(n_strips * N_COLS * 4 + 1024)
+        self._noise = _bake_noise(n_strips * 32 * 4 + 2048)
 
         # Reusable capture buffers — sized to the max possible zone width.
         # .convert() ensures the pixel format matches the display surface.
@@ -88,9 +90,12 @@ class EdgeGlitchRenderer:
         timeline_x0: int,
         timeline_x1: int,
         frame_seed: int,
+        y0: int = 0,
+        y1: int = -1,
+        right_edge: bool = True,
     ) -> None:
         """
-        Apply the edge glitch to the timeline's left and right margins.
+        Apply the edge glitch to the timeline's left (and optionally right) margins.
 
         Parameters
         ----------
@@ -98,8 +103,18 @@ class EdgeGlitchRenderer:
         timeline_x0  : left edge of the timeline (e.g. timeline_current_start)
         timeline_x1  : right edge of the timeline (e.g. timeline_current_end)
         frame_seed   : integer advancing each frame (e.g. int(time*30))
+        y0, y1       : vertical band to affect (default: full screen height)
+        right_edge   : whether to also glitch the right edge (False = left only)
         """
         sh = self.sh
+        if y1 < 0:
+            y1 = sh
+        y0 = max(0, y0)
+        y1 = min(sh, y1)
+        band_h = y1 - y0
+        if band_h <= 0:
+            return
+
         zone_w = max(8, int((timeline_x1 - timeline_x0) * EDGE_FRAC))
         zone_w = min(zone_w, self._max_ew)   # clamp to buffer capacity
 
@@ -108,23 +123,29 @@ class EdgeGlitchRenderer:
         lx = timeline_x0                 # left zone:  [lx,      lx + zone_w]
         rx = timeline_x1 - zone_w        # right zone: [rx,      rx + zone_w]
 
-        # 1. Snapshot both edge zones.
+        # 1. Snapshot edge zones (full height so strip source pixels are correct).
         self._lbuf.blit(screen, (0, 0), area=(lx, 0, zone_w, sh))
-        self._rbuf.blit(screen, (0, 0), area=(rx, 0, zone_w, sh))
+        if right_edge:
+            self._rbuf.blit(screen, (0, 0), area=(rx, 0, zone_w, sh))
 
-        # 2. Erase edge zones from screen.
-        screen.fill((0, 0, 0), (lx, 0, zone_w, sh))
-        screen.fill((0, 0, 0), (rx, 0, zone_w, sh))
+        # 2. Erase only the y-band from the screen.
+        screen.fill((0, 0, 0), (lx, y0, zone_w, band_h))
+        if right_edge:
+            screen.fill((0, 0, 0), (rx, y0, zone_w, band_h))
 
-        # 3. Re-draw strips with curvature + scatter + dissolve.
+        # 3. Re-draw strips with curvature + scatter + dissolve (within y-band).
         self._redraw_edge(screen, self._lbuf, dest_x=lx, left=True,
-                          ew=zone_w, seed=frame_seed)
-        self._redraw_edge(screen, self._rbuf, dest_x=rx, left=False,
-                          ew=zone_w, seed=frame_seed)
+                          ew=zone_w, seed=frame_seed, y0=y0, y1=y1)
+        if right_edge:
+            self._redraw_edge(screen, self._rbuf, dest_x=rx, left=False,
+                              ew=zone_w, seed=frame_seed, y0=y0, y1=y1)
 
-        # 4. Fade to black overlay — single BLEND_MULT blit per edge.
-        screen.blit(lfade, (lx, 0), special_flags=pygame.BLEND_MULT)
-        screen.blit(rfade, (rx, 0), special_flags=pygame.BLEND_MULT)
+        # 4. Fade to black overlay — blit only the y-band portion.
+        screen.blit(lfade, (lx, y0), area=(0, y0, zone_w, band_h),
+                    special_flags=pygame.BLEND_MULT)
+        if right_edge:
+            screen.blit(rfade, (rx, y0), area=(0, y0, zone_w, band_h),
+                        special_flags=pygame.BLEND_MULT)
 
     # ── Private ────────────────────────────────────────────────────────────────
 
@@ -147,28 +168,37 @@ class EdgeGlitchRenderer:
         left: bool,
         ew: int,
         seed: int,
+        y0: int = 0,
+        y1: int = -1,
     ) -> None:
         """
         Iterate over strips of *buf* and blit each to *screen* with
         computed dy offset and optional dissolve skip.
 
         No surface copies — blit() reads source pixels directly from buf.
+        N_COLS is computed dynamically so each pixel is approximately square
+        (col_w ≈ STRIP_H).
         """
         sh     = self.sh
+        if y1 < 0:
+            y1 = sh
         noise  = self._noise
         n_len  = len(noise)
-        col_w  = max(1, ew // N_COLS)
+        # Dynamic column count: make pixels approximately square
+        n_cols = max(1, ew // STRIP_H)
+        col_w  = max(1, ew // n_cols)
         inv_dk = 1.0 / max(1e-6, 1.0 - DISSOLVE_K)
 
-        row = 0
-        y   = 0
-        while y < sh:
-            strip_h = min(STRIP_H, sh - y)
-            base_ni = (row * N_COLS * 3 + seed * 17) % n_len
+        # Align y0 to a strip boundary so strips tile cleanly
+        row = y0 // STRIP_H
+        y   = row * STRIP_H
+        while y < y1:
+            strip_h = min(STRIP_H, y1 - y)
+            base_ni = (row * n_cols * 3 + seed * 17) % n_len
 
-            for col in range(N_COLS):
+            for col in range(n_cols):
                 cx = col * col_w
-                cw = col_w if col < N_COLS - 1 else (ew - cx)
+                cw = col_w if col < n_cols - 1 else (ew - cx)
 
                 # t: 0 at zone boundary, 1 at timeline edge
                 mid_x = cx + cw // 2

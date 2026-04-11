@@ -339,7 +339,7 @@ class Game(EffectsMixin, MechanicsMixin):
         self.dual_side_visuals_active = False
 
         # --- timeline animation ---
-        self.timeline_normal_start = 300
+        self.timeline_normal_start = 0
         self.timeline_normal_end   = 1500
         self.timeline_dual_start   = 0
         self.timeline_dual_end     = screen_width
@@ -702,9 +702,16 @@ class Game(EffectsMixin, MechanicsMixin):
             self.screen.fill((0, 0, 0))
             self.screen.blit(rotated, rotated.get_rect(center=self.screen.get_rect().center))
 
+        # Glitch effect restricted to the timeline band (y=380 ± 60).
+        # In default mode only apply the left edge; dual mode uses both sides.
+        _timeline_band_y0 = 320
+        _timeline_band_y1 = 440
         self._edge_glitch.apply(
             self.screen,
             int(self.timeline_current_start),
             int(self.timeline_current_end),
             int(time.perf_counter() * 30),
+            y0=_timeline_band_y0,
+            y1=_timeline_band_y1,
+            right_edge=self.dual_side_active,
         )

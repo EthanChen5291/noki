@@ -23,7 +23,7 @@ from game.music import MusicManager
 
 # moreover make the impulse 20% more colored so that the pink, blue, and yellow (new one) colored ones that alternate between are more noticeable.
 
-# end animation
+# end animation + remove word at end of level when typed
 
 # support for different time signatures?
 

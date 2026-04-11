@@ -60,7 +60,7 @@
   },
   "Takedown - Huntrix.mp3": {
     "master": 181200,
-    "classic": 59902
+    "classic": 69160
   },
   "Ed Sheeran  Shape of You (Lyrics).mp3": {
     "classic": 70718
@@ -70,5 +70,18 @@
   },
   "Borislav Slavov - Baldur's Gate 3 OST - Raphael's Theme.mp3": {
     "master": 56161
+  },
+  "Coldplay - Paradise (Lyrics).mp3": {
+    "classic": 110826,
+    "master": 164850
+  },
+  "Can't Tell Me Nothing.mp3": {
+    "classic": 110591
+  },
+  "Father Stretch My Hands Pt. 1.mp3": {
+    "master": 43475
+  },
+  "Drake - Hotline Bling (Official Audio).mp3": {
+    "master": 104791
   }
 }
