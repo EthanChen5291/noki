@@ -343,6 +343,7 @@ class Game(EffectsMixin, MechanicsMixin):
         self._shake_sequence: list      = []
         self._shake_seq_idx: int        = 0
         self._shake_step_elapsed: float = 0.0
+        self._last_shake_measure: int   = -1  # measure index of last screen shake
 
         self.input = Input()
 
@@ -439,6 +440,14 @@ class Game(EffectsMixin, MechanicsMixin):
         pygame.mixer.init()
         pygame.mixer.music.load(self.song_path)
         pygame.mixer.music.play()
+
+        # --- hitsound ---
+        _hitsound_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'audios', 'hitsound.mp3')
+        self._hitsound: pygame.mixer.Sound | None = None
+        try:
+            self._hitsound = pygame.mixer.Sound(_hitsound_path)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Rendering
@@ -620,7 +629,7 @@ class Game(EffectsMixin, MechanicsMixin):
         while (self._climax_shake_idx < len(self._climax_shake_beats)
                and song_time_now >= self._climax_shake_beats[self._climax_shake_idx][0]):
             _, _intensity = self._climax_shake_beats[self._climax_shake_idx]
-            self._trigger_screen_shake(_intensity)
+            self._try_screen_shake(_intensity, song_time_now)
             self._climax_shake_idx += 1
 
         current_char_idx = self.rhythm.char_event_idx
@@ -662,11 +671,13 @@ class Game(EffectsMixin, MechanicsMixin):
                             _note_x = self.hit_marker_current_x - (_time_until_hit * self.scroll_speed)
                         else:
                             _note_x = self.hit_marker_current_x + (_time_until_hit * self.scroll_speed)
-                        _grace_px = self.rhythm.timing_windows['ok'] * self.scroll_speed / 4
+                        _grace_px = self.rhythm.timing_windows['ok'] * self.scroll_speed / 7
                         _hx = int(max(self.hit_marker_current_x - _grace_px,
                                       min(self.hit_marker_current_x + _grace_px, _note_x)))
                     else:
                         _hx = int(self.hit_marker_current_x)
+                    if self._hitsound:
+                        self._hitsound.play()
                     if judgment != 'hold_started':
                         self.trigger_hit_ripple(_hx, _hy)
                         self.trigger_note_hit_anim(_hx, _hy, _hit_color)
@@ -713,6 +724,8 @@ class Game(EffectsMixin, MechanicsMixin):
                             self.show_message(f"HOLD Good ×{combo}", 1.0)
                         else:
                             self.show_message(f"HOLD OK ×{combo}", 1.0)
+                        if self._hitsound:
+                            self._hitsound.play()
                         self.trigger_hit_ripple(int(self.hit_marker_current_x), 380)
                         self.score = self.rhythm.get_score()
                     else:

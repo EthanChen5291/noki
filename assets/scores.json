@@ -9,7 +9,7 @@
   },
   "Scorpion.mp3": {
     "classic": 103400,
-    "master": 143096
+    "master": 187295
   },
   "Catch Catch.mp3": {
     "classic": 73216,
@@ -43,7 +43,7 @@
     "master": 109687
   },
   "what is love?.mp3": {
-    "master": 110490,
+    "master": 177750,
     "classic": 2652
   },
   "Huntrix - Takedown (Lyrics)  K-Pop Demon Hunters.mp3": {
@@ -73,7 +73,7 @@
   },
   "Coldplay - Paradise (Lyrics).mp3": {
     "classic": 110826,
-    "master": 164850
+    "master": 198400
   },
   "Can't Tell Me Nothing.mp3": {
     "classic": 110591
@@ -86,5 +86,11 @@
   },
   "Kendrick Lamar - tv off (Official Audio).mp3": {
     "master": 81286
+  },
+  "noki fake - Flow 1.wav": {
+    "master": 25380
+  },
+  "hustle.mp3": {
+    "master": 67067
   }
 }

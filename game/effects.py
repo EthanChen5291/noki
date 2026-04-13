@@ -136,8 +136,17 @@ class EffectsMixin:
         frame_idx = int(normalized * n) % n
         self._bop_surf = self._bop_frames[frame_idx]
 
+    def _try_screen_shake(self, intensity: float, song_time: float) -> None:
+        """Trigger a screen shake only once per measure."""
+        measure_dur = getattr(self, 'beat_duration', 0.5) * 4
+        current_measure = int(song_time / measure_dur) if measure_dur > 0 else 0
+        if current_measure == getattr(self, '_last_shake_measure', -1):
+            return
+        self._last_shake_measure = current_measure
+        self._trigger_screen_shake(intensity)
+
     def trigger_shockwave(self):
-        """Spawn multiple expanding shockwave rings."""
+        """Spawn multiple expanding shockwave rings and shake the screen."""
         center_x = self.screen.get_width() // 2
         center_y = self.screen.get_height() // 2
 
@@ -154,6 +163,10 @@ class EffectsMixin:
                 speed=400 + i * 50
             )
             self.shockwaves.append(shockwave)
+
+        import time as _time
+        _song_time = _time.perf_counter() - self.rhythm.start_time - self.rhythm.lead_in
+        self._try_screen_shake(0.75, _song_time)
 
     _NOTE_THEME_COLORS = {
         'blue':   (142, 204, 255),
