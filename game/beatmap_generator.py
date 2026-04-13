@@ -3,7 +3,7 @@ Public API for beatmap generation.
 Slot-building, word assignment, and intensity helpers live in slot_builder.py.
 """
 from typing import Optional
-from analysis.audio_analysis import analyze_song_intensity, get_sb_info, detect_hold_regions
+from analysis.audio_analysis import analyze_song_intensity, get_sb_info, detect_hold_regions, get_beat_onset_strengths
 from . import constants as C
 from . import models as M
 from .slot_builder import (
@@ -25,9 +25,10 @@ def generate_beatmap(
     """Generate an engaging, playable beatmap using slot-based rhythm generation."""
     profile = C.DIFFICULTY_PROFILES[difficulty]
     beat_duration = 60 / song.bpm
+    is_demon = (difficulty == "demon")
 
     sb_info = get_sb_info(song, subdivisions=4)
-    slots = build_rhythm_slots(sb_info, song)
+    slots = build_rhythm_slots(sb_info, song, include_weak=is_demon)
     slots = filter_slots_for_playability(slots, min_spacing=profile.min_char_spacing)
 
     measures = group_slots_by_measure(slots, beat_duration)
@@ -39,12 +40,26 @@ def generate_beatmap(
             intensity_profile = analyze_song_intensity(path, song.bpm)
 
     # adjust slots based on intensity
-    measures = adjust_slots_by_intensity(measures, intensity_profile, beat_duration, target_cps=profile.target_cps)
+    measures = adjust_slots_by_intensity(
+        measures, intensity_profile, beat_duration,
+        target_cps=profile.target_cps, demon_mode=is_demon,
+    )
 
-    for i, measure in enumerate(measures):
-        if len(measure) > C.MAX_SLOTS_PER_MEASURE:
-            measure_sorted = sorted(measure, key=lambda s: (-s.priority, s.time))
-            measures[i] = sorted(measure_sorted[:C.MAX_SLOTS_PER_MEASURE], key=lambda s: s.time)
+    # For demon: reorder slots within each measure so those landing on
+    # percussion-heavy beat positions are kept first, then cap at the
+    # demon-specific (higher) per-measure limit.
+    if is_demon and song.beat_times:
+        path = C._to_abs_path(song.file_path) if song.file_path else None
+        perc_strengths = get_beat_onset_strengths(path, song.beat_times) if path else []
+        measures = _apply_demon_percussion_pattern(
+            measures, perc_strengths, profile.max_slots_per_measure
+        )
+    else:
+        max_cap = profile.max_slots_per_measure
+        for i, measure in enumerate(measures):
+            if len(measure) > max_cap:
+                measure_sorted = sorted(measure, key=lambda s: (-s.priority, s.time))
+                measures[i] = sorted(measure_sorted[:max_cap], key=lambda s: s.time)
 
     # Detect hold regions from audio
     hold_regions: list[tuple[float, float]] = []
@@ -58,10 +73,14 @@ def generate_beatmap(
         measures, word_bank, beat_duration, intensity_profile, dual_side_sections,
         hold_regions=hold_regions,
         target_cps=profile.target_cps, cps_tolerance=profile.cps_tolerance,
+        min_word_gap=profile.min_word_gap, quiet_skip_chance=profile.quiet_skip_chance,
+        max_words_per_measure=profile.max_words_per_measure,
+        max_word_length=profile.max_word_length,
     )
     #events = add_rhythm_variations(events, song)
 
-    events = deduplicate_events(events, beat_duration, min_spacing=profile.min_char_spacing)
+    events = deduplicate_events(events, beat_duration, min_spacing=profile.min_char_spacing,
+                                max_slots_per_measure=profile.max_slots_per_measure)
 
     # Post-process: cap every hold duration so its tail never reaches the next note.
     # Uses a 200ms visual gap so bars never visually touch.
@@ -106,10 +125,55 @@ def generate_beatmap(
     return events
 
 
+def _apply_demon_percussion_pattern(
+    measures: list[list[M.RhythmSlot]],
+    perc_strengths: list[float],
+    max_slots: int,
+) -> list[list[M.RhythmSlot]]:
+    """
+    For demon difficulty: within each measure, prioritize slots that land on
+    beat positions with consistently strong percussion (kick/snare pattern),
+    then cap at max_slots. This gives the dense spam a rhythmic backbone
+    instead of random note placement.
+    """
+    # Build a per-in-measure-beat percussion template over 4 beat positions.
+    # perc_strengths[i] is the normalised percussion strength at beat i.
+    template = [0.0] * 4
+    counts   = [0]   * 4
+    for i, strength in enumerate(perc_strengths):
+        pos = i % 4
+        template[pos] += strength
+        counts[pos]   += 1
+    template = [template[i] / max(1, counts[i]) for i in range(4)]
+
+    result = []
+    for measure_slots in measures:
+        if not measure_slots:
+            result.append([])
+            continue
+
+        if len(measure_slots) <= max_slots:
+            result.append(measure_slots)
+            continue
+
+        # Score each slot: priority is primary, percussion alignment secondary.
+        def slot_score(s: M.RhythmSlot) -> tuple:
+            beat_in_measure = int(s.beat_position) % 4
+            perc_score = template[beat_in_measure]
+            return (-s.priority, -perc_score, s.time)
+
+        sorted_slots = sorted(measure_slots, key=slot_score)
+        kept = sorted(sorted_slots[:max_slots], key=lambda s: s.time)
+        result.append(kept)
+
+    return result
+
+
 def deduplicate_events(
     events: list[M.CharEvent],
     beat_duration: float,
-    min_spacing: float = 0.1
+    min_spacing: float = 0.1,
+    max_slots_per_measure: int = C.MAX_SLOTS_PER_MEASURE,
 ) -> list[M.CharEvent]:
     """
     Remove events that are too close together and cap events per measure.
@@ -148,8 +212,8 @@ def deduplicate_events(
 
     events_to_remove: set[float] = set()
     for measure_idx, m_events in measure_events.items():
-        if len(m_events) > C.MAX_SLOTS_PER_MEASURE:
-            excess = m_events[C.MAX_SLOTS_PER_MEASURE:]
+        if len(m_events) > max_slots_per_measure:
+            excess = m_events[max_slots_per_measure:]
             for e in excess:
                 events_to_remove.add(e.timestamp)
 

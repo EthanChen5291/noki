@@ -97,13 +97,14 @@ class Button:
 # ─── Single-line text input ───────────────────────────────────────────────────
 
 class TextInput:
-    def __init__(self, rect, font, placeholder="", max_length=80):
-        self.rect        = pygame.Rect(rect)
-        self.font        = font
-        self.placeholder = placeholder
-        self.max_length  = max_length
-        self.text        = ""
-        self.active      = False
+    def __init__(self, rect, font, placeholder="", max_length=80, numeric_only=False):
+        self.rect         = pygame.Rect(rect)
+        self.font         = font
+        self.placeholder  = placeholder
+        self.max_length   = max_length
+        self.numeric_only = numeric_only
+        self.text         = ""
+        self.active       = False
 
     def handle_events(self, events):
         for event in events:
@@ -115,7 +116,10 @@ class TextInput:
                 elif event.key in (pygame.K_RETURN, pygame.K_ESCAPE, pygame.K_TAB):
                     self.active = False
                 elif event.unicode.isprintable() and len(self.text) < self.max_length:
-                    self.text += event.unicode
+                    if self.numeric_only and not event.unicode.isdigit():
+                        pass  # ignore non-digit input
+                    else:
+                        self.text += event.unicode
 
     def draw(self, screen, current_time):
         bg    = (40, 40, 55)  if self.active else (22, 22, 32)
@@ -146,12 +150,13 @@ class TextInput:
 # ─── Difficulty selector  ◀ Medium ▶ ────────────────────────────────────────
 
 class DifficultySelector:
-    LABELS = ["Easy",    "Fair",    "Hard"  ]
-    KEYS   = ["journey", "classic", "master"]
+    LABELS = ["Easy",    "Fair",    "Hard",   "Demon" ]
+    KEYS   = ["journey", "classic", "master", "demon" ]
     COLORS = [
-        (90,  210, 90),
-        (220, 200, 70),
-        (220, 85,  85),
+        (90,  210,  90),
+        (220, 200,  70),
+        (220,  85,  85),
+        (180,  60, 220),
     ]
     _LERP_SPD = 0.22   # per-frame lerp toward target (0 = instant, 1 = never)
 

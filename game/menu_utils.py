@@ -204,6 +204,7 @@ def _fetch_lyrics_words(artist: str, title: str) -> list[str]:
 
 _WORD_BANK_FILE    = os.path.join("assets", "song_words.json")
 _CUSTOM_SONGS_FILE = os.path.join("assets", "custom_songs.json")
+_CUSTOM_BPMS_FILE  = os.path.join("assets", "custom_bpms.json")
 
 
 def _load_custom_songs() -> list[str]:
@@ -218,6 +219,22 @@ def _save_custom_songs(names: list[str]) -> None:
     try:
         with open(_CUSTOM_SONGS_FILE, "w", encoding="utf-8") as f:
             json.dump(names, f, indent=2)
+    except Exception:
+        pass
+
+
+def _load_custom_bpms() -> dict[str, int]:
+    try:
+        with open(_CUSTOM_BPMS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_custom_bpms(bpms: dict[str, int]) -> None:
+    try:
+        with open(_CUSTOM_BPMS_FILE, "w", encoding="utf-8") as f:
+            json.dump(bpms, f, indent=2)
     except Exception:
         pass
 

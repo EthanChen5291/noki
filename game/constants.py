@@ -81,6 +81,11 @@ class DifficultyProfile:
     min_char_spacing: float
     timing_scale: float
     scroll_scale: float
+    min_word_gap: float = 0.6    # min gap between word end and next word start
+    quiet_skip_chance: float = 0.65  # probability of skipping a word in low-intensity sections
+    max_slots_per_measure: int = 8   # hard cap on notes placed per measure
+    max_words_per_measure: int = 1   # how many words to attempt per measure
+    max_word_length: int = 99        # cap on word length (chars)
 
 DIFFICULTY_PROFILES = {
     "journey": DifficultyProfile(
@@ -97,5 +102,12 @@ DIFFICULTY_PROFILES = {
         target_cps=4.5, min_cps=3.5, max_cps=6.0,
         cps_tolerance=0.4, min_char_spacing=0.16,
         timing_scale=0.85, scroll_scale=1.25,
+    ),
+    "demon": DifficultyProfile(
+        target_cps=5.5, min_cps=4.0, max_cps=7.5,
+        cps_tolerance=0.35, min_char_spacing=0.16,
+        timing_scale=0.70, scroll_scale=1.25,
+        min_word_gap=0.40, quiet_skip_chance=0.20,
+        max_slots_per_measure=16, max_words_per_measure=8, max_word_length=4,
     ),
 }

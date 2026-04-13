@@ -13,7 +13,7 @@ import os
 import pygame
 
 from ..menu_utils import _FONT
-from ..ui_components import DifficultySelector
+from ..ui_components import DifficultySelector, TextInput
 from ._constants import LEVEL_MENU_ANIM_DUR, BTN_LERP_HOVER, BTN_LERP_FAST
 
 _ASSETS = os.path.join(
@@ -29,7 +29,7 @@ class LevelMenu:
     """Popup shown when a level row is clicked."""
 
     def __init__(self, screen, song_idx, song_name, initial_diff_idx, scores,
-                 origin_rect=None):
+                 origin_rect=None, is_custom=False, current_bpm: int | None = None):
         self.screen    = screen
         self.song_idx  = song_idx
         self.song_name = song_name
@@ -65,7 +65,7 @@ class LevelMenu:
 
         dummy_font    = pygame.font.Font(_FONT, sub_sz)
         self._diff    = DifficultySelector(0, 0, dummy_font)
-        self._diff.selected = max(0, min(2, initial_diff_idx))
+        self._diff.selected = max(0, min(len(DifficultySelector.KEYS) - 1, initial_diff_idx))
 
         # Difficulty slide animation state (uses big_font for the label)
         self._diff_slide: float = 0.0           # incoming label x offset (lerps → 0)
@@ -96,6 +96,26 @@ class LevelMenu:
         )
         self._close_hovered = False
 
+        # BPM input (custom songs only)
+        self.is_custom = is_custom
+        self.bpm: int | None = current_bpm
+        if is_custom:
+            _bpm_w  = int(pw * 0.32)
+            _bpm_h  = max(36, int(sub_sz * 1.6))
+            _bpm_x  = px + pw * 3 // 4 - _bpm_w // 2
+            _bpm_y  = (self._body_top + self._body_bottom) // 2 + int(ph * 0.04)
+            self._bpm_input = TextInput(
+                (_bpm_x, _bpm_y, _bpm_w, _bpm_h),
+                pygame.font.Font(_FONT, sub_sz),
+                placeholder="auto",
+                max_length=4,
+                numeric_only=True,
+            )
+            if current_bpm is not None:
+                self._bpm_input.text = str(current_bpm)
+        else:
+            self._bpm_input = None
+
         self._overlay = pygame.Surface((sw, sh), pygame.SRCALPHA)
 
         self._origin = origin_rect.copy() if origin_rect else pygame.Rect(
@@ -109,9 +129,13 @@ class LevelMenu:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def update(self, dt: float, mouse_pos, mouse_clicked, _current_time) -> str | None:
+    def update(self, dt: float, mouse_pos, mouse_clicked, _current_time,
+               events: list | None = None) -> str | None:
         """Returns 'play', 'close', or None."""
         self._update_animation(dt)
+
+        if self._bpm_input is not None and events:
+            self._bpm_input.handle_events(events)
 
         if self._closing:
             if self._close_elapsed >= LEVEL_MENU_ANIM_DUR:
@@ -212,17 +236,24 @@ class LevelMenu:
         self._draw_tri(self.screen, a_col, left_cx + arrow_gap, arrow_y, "right")
         self._right_arrow_rect = pygame.Rect(left_cx + arrow_gap - 22, arrow_y - 18, 44, 36)
 
-        # Right half: best score
+        # Right half: best score (canon) or BPM input (custom)
         right_cx = fpx + fpw * 3 // 4
-        sub_surf = self._sub_font.render("Best", True, (110, 170, 230))
-        _blit_a(sub_surf, sub_surf.get_rect(
-            center=(right_cx, self._body_cy - int(self._ph * 0.10))
-        ))
-        top    = self._top_score()
-        s_surf = self._big_font.render(
-            f"{top:,}" if top is not None else "- -", True, (255, 255, 255)
-        )
-        _blit_a(s_surf, s_surf.get_rect(center=(right_cx, self._body_cy + int(self._ph * 0.06))))
+        if self.is_custom and self._bpm_input is not None:
+            lbl_surf = self._sub_font.render("BPM", True, (110, 200, 170))
+            _blit_a(lbl_surf, lbl_surf.get_rect(
+                center=(right_cx, self._body_cy - int(self._ph * 0.10))
+            ))
+            self._bpm_input.draw(self.screen, _current_time)
+        else:
+            sub_surf = self._sub_font.render("Best", True, (110, 170, 230))
+            _blit_a(sub_surf, sub_surf.get_rect(
+                center=(right_cx, self._body_cy - int(self._ph * 0.10))
+            ))
+            top    = self._top_score()
+            s_surf = self._big_font.render(
+                f"{top:,}" if top is not None else "- -", True, (255, 255, 255)
+            )
+            _blit_a(s_surf, s_surf.get_rect(center=(right_cx, self._body_cy + int(self._ph * 0.06))))
 
         # Rule above play button
         pygame.draw.line(
@@ -255,6 +286,10 @@ class LevelMenu:
 
         if mouse_clicked:
             if self._play_hovered:
+                # capture BPM value before launching
+                if self._bpm_input is not None:
+                    raw = self._bpm_input.text.strip()
+                    self.bpm = int(raw) if raw.isdigit() and int(raw) > 0 else None
                 return "play"
             if self._close_hovered or not self.rect.collidepoint(mouse_pos):
                 self._closing = True
@@ -272,7 +307,7 @@ class LevelMenu:
         self._diff_prev_color    = DifficultySelector.COLORS[self._diff.selected]
         self._diff_prev_slide    = 0.0
         self._diff_prev_exit_dir = -direction   # outgoing exits opposite to the click
-        self._diff.selected = (self._diff.selected + direction) % 3
+        self._diff.selected = (self._diff.selected + direction) % len(DifficultySelector.KEYS)
         self._diff_slide = direction * self._diff_slide_max  # incoming enters from click side
 
     def _update_animation(self, dt: float):

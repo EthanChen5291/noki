@@ -18,6 +18,8 @@ from .menu_utils import (
     _save_custom_songs,
     _load_word_banks,
     _save_word_banks,
+    _load_custom_bpms,
+    _save_custom_bpms,
 )
 from .ui_components import Button, Petal
 from .screens import TitleScreen, LevelSelect, LevelMenu, FileUploadScreen
@@ -37,8 +39,10 @@ class MenuManager:
 
         # load scores first — needed by LevelSelect
         self._scores              = _load_scores()
+        self._custom_bpms: dict[str, int] = _load_custom_bpms()
         self._level_menu: LevelMenu | None = None
         self._pending_difficulty: str | None = None
+        self._pending_bpm: int | None = None
 
         # Canon = built-in songs only; custom songs loaded from disk are excluded
         _persisted_custom       = set(_load_custom_songs())
@@ -226,11 +230,20 @@ class MenuManager:
 
                 # ── level detail popup ────────────────────────────────────────
                 if self._level_menu is not None:
-                    lm_action = self._level_menu.update(dt, mouse_pos, mouse_clicked, current_time)
+                    lm_action = self._level_menu.update(dt, mouse_pos, mouse_clicked, current_time, events)
                     self._level_menu.draw(current_time)
                     if lm_action == "play":
                         self._pending_difficulty = self._level_menu._diff.difficulty
                         li = self._level_menu.song_idx
+                        # persist BPM for custom songs
+                        if self._level_menu.is_custom:
+                            sname = self.song_names[li]
+                            if self._level_menu.bpm is not None:
+                                self._custom_bpms[sname] = self._level_menu.bpm
+                            else:
+                                self._custom_bpms.pop(sname, None)
+                            _save_custom_bpms(self._custom_bpms)
+                        self._pending_bpm = self._level_menu.bpm if self._level_menu.is_custom else None
                         btn = self.level_select.level_buttons[li]
                         origin = (btn.rect.centerx,
                                   btn.rect.centery - self.level_select.scroll_offset)
@@ -270,13 +283,17 @@ class MenuManager:
                     self.level_select._full_names[rename_idx] = new_name
                     self.level_select.level_buttons[rename_idx].text = new_name
                 elif action == "select":
-                    diff_idx = self.level_select.difficulty_selectors[idx].selected
-                    _btn     = self.level_select.level_buttons[idx]
-                    _vis_y   = _btn.rect.y - self.level_select.scroll_offset
-                    _origin  = pygame.Rect(_btn.rect.x, _vis_y, _btn.rect.w, _btn.rect.h)
+                    diff_idx  = self.level_select.difficulty_selectors[idx].selected
+                    _btn      = self.level_select.level_buttons[idx]
+                    _vis_y    = _btn.rect.y - self.level_select.scroll_offset
+                    _origin   = pygame.Rect(_btn.rect.x, _vis_y, _btn.rect.w, _btn.rect.h)
+                    _sname    = self.song_names[idx]
+                    _is_cust  = _sname not in set(self._canon_names)
+                    _cur_bpm  = self._custom_bpms.get(_sname) if _is_cust else None
                     self._level_menu = LevelMenu(
-                        self.screen, idx, self.song_names[idx],
+                        self.screen, idx, _sname,
                         diff_idx, self._scores, _origin,
+                        is_custom=_is_cust, current_bpm=_cur_bpm,
                     )
 
             elif self.state == "upload":
@@ -305,7 +322,9 @@ class MenuManager:
                                       or self.level_select.difficulty_selectors[idx].difficulty)
                         self._pending_difficulty = None
                         word_bank  = self._word_bank_for(idx)
-                        return (idx, difficulty, word_bank)
+                        bpm        = self._pending_bpm
+                        self._pending_bpm = None
+                        return (idx, difficulty, word_bank, bpm)
                     self.state = self.transition_target_state
                     if self.state == "title":
                         self.title_screen.reset()

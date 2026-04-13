@@ -34,13 +34,15 @@
     "classic": 31394
   },
   "Toby Fox - Finale.mp3": {
-    "master": 53280
+    "master": 53280,
+    "demon": 68093
   },
   "Chaos Construct.mp3": {
     "master": 28350
   },
   "Glitch in your Heart.mp3": {
-    "master": 109687
+    "master": 109687,
+    "demon": 37128
   },
   "what is love?.mp3": {
     "master": 177750,
@@ -92,5 +94,17 @@
   },
   "hustle.mp3": {
     "master": 67067
+  },
+  "MEGALOVANIA (Camellia Remix).mp3": {
+    "demon": 137973
+  },
+  "Freedom Dive (tpz Overcute Remix).mp3": {
+    "demon": 90931
+  },
+  "GHOST.mp3": {
+    "demon": 168629
+  },
+  "crystallized.mp3": {
+    "demon": 50407
   }
 }

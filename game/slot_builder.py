@@ -12,10 +12,15 @@ from . import models as M
 
 # ==================== SLOT-BASED RHYTHM GENERATION ====================
 
-def build_rhythm_slots(sb_info: list[M.SubBeatInfo], song: M.Song) -> list[M.RhythmSlot]:
+def build_rhythm_slots(
+    sb_info: list[M.SubBeatInfo],
+    song: M.Song,
+    include_weak: bool = False,
+) -> list[M.RhythmSlot]:
     """
     Build rhythm slots from audio analysis.
     A slot is a potential character placement based on musical features.
+    include_weak=True adds priority-1 slots for weak sub-beats (used by demon difficulty).
     """
     slots: list[M.RhythmSlot] = []
     beat_duration = 60 / song.bpm
@@ -32,7 +37,9 @@ def build_rhythm_slots(sb_info: list[M.SubBeatInfo], song: M.Song) -> list[M.Rhy
             if not slots or (sb.time - slots[-1].time) > 0.6:
                 is_note_slot = True
                 priority = 2  # medium priority
-        # weak beats: skip entirely — too many fill the map and dilute strong beats
+        elif include_weak and sb.level == M.SubBeatIntensity.WEAK:
+            is_note_slot = True
+            priority = 1  # low priority — demon only
 
         if is_note_slot:
             slots.append(M.RhythmSlot(
@@ -109,27 +116,60 @@ def select_word_for_measure(
     intensity_ratio: float = 1.0,
     target_cps: float = C.TARGET_CPS,
     cps_tolerance: float = C.CPS_TOLERANCE,
+    allow_spam: bool = False,
+    beat_duration: float = 0.5,
+    max_word_length: int = 99,
 ) -> Optional[M.Word]:
     """
     Select the best word for a measure based on:
     - Number of available rhythm slots
     - Intensity ratio (loud = more chars, quiet = fewer)
     - Word variety
+    Quiet sections build up with short words; high-intensity sections may
+    use long words OR burst into rapid single-letter spam (non-linear).
     """
     if not remaining_words:
         return None
 
-    # adjust target based on intensity
-    if intensity_ratio > 1.2:
-        target_chars = min(available_slots, int(available_slots * 0.9))
-    elif intensity_ratio > 1.0:
-        target_chars = min(available_slots, int(available_slots * 0.8))
+    # apply per-difficulty word length cap
+    remaining_words = [w for w in remaining_words if len(w.text) <= max_word_length]
+    if not remaining_words:
+        remaining_words = word_bank  # fallback: ignore cap rather than return nothing
+
+    # --- spam burst: very high intensity → rapid single-letter presses ---
+    if allow_spam and intensity_ratio >= 1.4 and random.random() < 0.38:
+        all_chars = [c for w in word_bank for c in w.text if c.isalpha()]
+        if all_chars:
+            char = random.choice(all_chars)
+            snapped = snap_to_grid(1.0 / target_cps / beat_duration, C.SNAP_GRID)
+            snapped = max(snapped, C.SNAP_GRID)
+            return M.Word(
+                text=char,
+                rest_type=None,
+                ideal_beats=1.0 / target_cps / beat_duration,
+                snapped_beats=snapped,
+                snapped_cps=1.0 / (snapped * beat_duration),
+            )
+
+    # --- intensity-driven word length (build-up from quiet → dense) ---
+    if intensity_ratio < 0.6:
+        # very quiet: prefer 1-2 char words
+        target_chars = max(1, int(available_slots * 0.3))
     elif intensity_ratio < 0.8:
-        target_chars = max(2, int(available_slots * 0.5))
+        # calm: short words
+        target_chars = max(2, int(available_slots * 0.45))
     elif intensity_ratio < 1.0:
-        target_chars = max(2, int(available_slots * 0.7))
-    else:
+        # building: medium-short
+        target_chars = max(2, int(available_slots * 0.6))
+    elif intensity_ratio < 1.2:
+        # moderate: medium
         target_chars = max(2, int(available_slots * 0.75))
+    elif intensity_ratio < 1.5:
+        # energetic: lean long
+        target_chars = min(available_slots, int(available_slots * 0.88))
+    else:
+        # peak: as long as slots allow
+        target_chars = min(available_slots, available_slots)
 
     tolerance = 2 if abs(intensity_ratio - 1.0) > 0.3 else 1
     candidates = [
@@ -167,10 +207,15 @@ def assign_words_to_slots(
     hold_regions: Optional[list[tuple[float, float]]] = None,
     target_cps: float = C.TARGET_CPS,
     cps_tolerance: float = C.CPS_TOLERANCE,
+    min_word_gap: float = C.MIN_WORD_GAP,
+    quiet_skip_chance: float = 0.65,
+    max_words_per_measure: int = 1,
+    max_word_length: int = 99,
 ) -> list[M.CharEvent]:
     """
     Assign characters to rhythm slots measure-by-measure.
-    This creates a natural, musical rhythm flow.
+    max_words_per_measure > 1 (demon difficulty) will fill unused slots within
+    the same measure with additional words, giving dense rapid-fire note density.
     """
     events: list[M.CharEvent] = []
     remaining_words = word_bank.copy()
@@ -178,6 +223,8 @@ def assign_words_to_slots(
     last_word_end_time = -float('inf')
     last_word_text = ""
     dual_note_count = 0   # counts notes placed inside dual sections for alternation
+    _burst_active = False  # True after placing a spam word → tighter gap next measure
+    _burst_gap = max(min_word_gap * 0.35, 0.0)  # gap used between consecutive spam words
 
     # one measure grace period when starting dual sections
     grace_beats = 4
@@ -190,7 +237,8 @@ def assign_words_to_slots(
         section_idx = measure_idx // 4
 
         first_slot_time = measure_slots[0].time
-        if first_slot_time < last_word_end_time + C.MIN_WORD_GAP:
+        effective_gap = _burst_gap if _burst_active else min_word_gap
+        if first_slot_time < last_word_end_time + effective_gap:
             continue
 
         in_grace_period = False
@@ -221,101 +269,121 @@ def assign_words_to_slots(
             intensity = intensity_profile.section_intensities[section_idx]
             avg = sum(intensity_profile.section_intensities) / len(intensity_profile.section_intensities)
 
-            if intensity < avg * 0.7 and random.random() < 0.65:
+            if intensity < avg * 0.7 and random.random() < quiet_skip_chance:
                 continue
 
-        candidates = [w for w in remaining_words if w.text != last_word_text]
-        if not candidates:
-            candidates = remaining_words
+        # ── inner loop: place up to max_words_per_measure words in this measure ──
+        available_slots = sorted(measure_slots, key=lambda s: s.time)
+        last_rest_slot: M.RhythmSlot | None = None
 
-        word = select_word_for_measure(
-            len(measure_slots),
-            candidates,
-            word_bank,
-            intensity_ratio,
-            target_cps=target_cps,
-            cps_tolerance=cps_tolerance,
-        )
+        for _word_attempt in range(max_words_per_measure):
+            if not remaining_words:
+                break
 
-        if not word or not word.text:
-            continue
+            # find slots that are past the required gap from the last placed note
+            effective_gap = _burst_gap if _burst_active else min_word_gap
+            eligible = [s for s in available_slots
+                        if not s.is_filled and s.time >= last_word_end_time + effective_gap]
+            if not eligible:
+                break
 
-        if word in remaining_words:
-            remaining_words.remove(word)
+            candidates = [w for w in remaining_words if w.text != last_word_text]
+            if not candidates:
+                candidates = remaining_words
 
-        chars_to_place = min(len(word.text), len(measure_slots), C.MAX_SLOTS_PER_MEASURE)
+            word = select_word_for_measure(
+                len(eligible),
+                candidates,
+                word_bank,
+                intensity_ratio,
+                target_cps=target_cps,
+                cps_tolerance=cps_tolerance,
+                allow_spam=_burst_active or intensity_ratio >= 1.4,
+                beat_duration=beat_duration,
+                max_word_length=max_word_length,
+            )
 
-        sorted_slots = sorted(measure_slots, key=lambda s: s.priority, reverse=True)
-        selected_slots = sorted_slots[:chars_to_place]
+            if not word or not word.text:
+                break
 
-        selected_slots.sort(key=lambda s: s.time)
+            if word in remaining_words:
+                remaining_words.remove(word)
 
-        if not selected_slots:
-            continue
+            chars_to_place = min(len(word.text), len(eligible), C.MAX_SLOTS_PER_MEASURE)
 
-        for char_idx in range(chars_to_place):
-            char = word.text[char_idx]
-            slot = selected_slots[char_idx]
+            sorted_eligible = sorted(eligible, key=lambda s: s.priority, reverse=True)
+            selected_slots = sorted(sorted_eligible[:chars_to_place], key=lambda s: s.time)
 
-            from_left = False
-            if dual_side_sections:
-                for dual_sec in dual_side_sections:
-                    if dual_sec.start_time <= slot.time < dual_sec.end_time:
-                        from_left = (dual_note_count % 2 == 1)
-                        dual_note_count += 1
-                        break
+            if not selected_slots:
+                break
 
-            # Check if this slot falls within a detected hold region
-            hold_dur = 0.0
-            if hold_regions:
-                next_slot_time = (
-                    selected_slots[char_idx + 1].time
-                    if char_idx + 1 < chars_to_place
-                    else float('inf')
-                )
-                for hr_start, hr_dur in hold_regions:
-                    if abs(slot.time - hr_start) <= beat_duration * 0.5:
-                        # Cap hold so it doesn't bleed into next char (leave 150ms gap)
-                        max_dur = max(0.0, next_slot_time - slot.time - 0.15)
-                        hold_dur = min(hr_dur, max_dur)
-                        if hold_dur < 0.1:
-                            hold_dur = 0.0
-                        break
+            for char_idx in range(chars_to_place):
+                char = word.text[char_idx]
+                slot = selected_slots[char_idx]
 
-            events.append(M.CharEvent(
-                char=char,
-                timestamp=slot.time,
-                word_text=word.text,
-                char_idx=char_idx,
-                beat_position=slot.beat_position,
-                section=section_idx,
-                is_rest=False,
-                from_left=from_left,
-                hold_duration=hold_dur,
-            ))
-            slot.is_filled = True
+                from_left = False
+                if dual_side_sections:
+                    for dual_sec in dual_side_sections:
+                        if dual_sec.start_time <= slot.time < dual_sec.end_time:
+                            from_left = (dual_note_count % 2 == 1)
+                            dual_note_count += 1
+                            break
 
-        last_word_end_time = selected_slots[chars_to_place - 1].time
-        last_word_text = word.text
+                # Check if this slot falls within a detected hold region
+                hold_dur = 0.0
+                if hold_regions:
+                    next_slot_time = (
+                        selected_slots[char_idx + 1].time
+                        if char_idx + 1 < chars_to_place
+                        else float('inf')
+                    )
+                    for hr_start, hr_dur in hold_regions:
+                        if abs(slot.time - hr_start) <= beat_duration * 0.5:
+                            max_dur = max(0.0, next_slot_time - slot.time - 0.15)
+                            hold_dur = min(hr_dur, max_dur)
+                            if hold_dur < 0.1:
+                                hold_dur = 0.0
+                            break
 
-        if measure_idx < len(measures) - 1:
-            rest_time = selected_slots[-1].time + 0.1
+                events.append(M.CharEvent(
+                    char=char,
+                    timestamp=slot.time,
+                    word_text=word.text,
+                    char_idx=char_idx,
+                    beat_position=slot.beat_position,
+                    section=section_idx,
+                    is_rest=False,
+                    from_left=from_left,
+                    hold_duration=hold_dur,
+                ))
+                slot.is_filled = True
 
+            last_word_end_time = selected_slots[chars_to_place - 1].time
+            last_word_text = word.text
+            last_rest_slot = selected_slots[-1]
+            _burst_active = len(word.text) == 1 and intensity_ratio >= 1.4
+
+            # remove used slots so subsequent words in this measure don't reuse them
+            used_times = {s.time for s in selected_slots}
+            available_slots = [s for s in available_slots if s.time not in used_times]
+
+            # recycle words if running low
+            if len(remaining_words) < len(word_bank) * 0.3:
+                for w in word_bank:
+                    if w not in remaining_words:
+                        remaining_words.append(w)
+
+        # one rest event per measure, after the last word placed
+        if last_rest_slot is not None and measure_idx < len(measures) - 1:
             events.append(M.CharEvent(
                 char="",
-                timestamp=rest_time,
+                timestamp=last_rest_slot.time + 0.1,
                 word_text="",
                 char_idx=-1,
-                beat_position=selected_slots[-1].beat_position,
+                beat_position=last_rest_slot.beat_position,
                 section=section_idx,
-                is_rest=True
+                is_rest=True,
             ))
-
-        # recycle words if running low
-        if len(remaining_words) < len(word_bank) * 0.3:
-            for w in word_bank:
-                if w not in remaining_words:
-                    remaining_words.append(w)
 
     return events
 
@@ -389,11 +457,13 @@ def adjust_slots_by_intensity(
     intensity_profile: Optional[M.IntensityProfile],
     beat_duration: float,
     target_cps: float = C.TARGET_CPS,
+    demon_mode: bool = False,
 ) -> list[list[M.RhythmSlot]]:
     """
     Adjust slot density based on song intensity.
     Loud sections = more slots (higher CPS)
     Quiet sections = fewer slots (lower CPS)
+    demon_mode keeps all priorities in loud sections to enable dense note placement.
     """
     if not intensity_profile or not measures:
         return measures
@@ -415,26 +485,39 @@ def adjust_slots_by_intensity(
         avg_intensity = sum(intensity_profile.section_intensities) / len(intensity_profile.section_intensities)
         intensity_ratio = section_intensity / (avg_intensity + 1e-6)
 
-        # ADJUST SLOT DENSITY BASED ON INTENSITY
-        if intensity_ratio > 1.3:  # very loud — allow medium + strong
-            keep_slots = [s for s in measure_slots if s.priority >= 2]
-        elif intensity_ratio > 1.0:  # moderately loud — strong only
-            keep_slots = [s for s in measure_slots if s.priority >= 3]
-        elif intensity_ratio < 0.6:  # very quiet — top strong slot only
-            strong = [s for s in measure_slots if s.priority >= 3]
-            keep_slots = strong[:1] if strong else []
-        elif intensity_ratio < 0.85:  # quiet — strong only, cap at 1
-            strong = [s for s in measure_slots if s.priority >= 3]
-            keep_slots = strong[:1] if strong else []
-        else:  # normal — strong only
-            keep_slots = [s for s in measure_slots if s.priority >= 3]
+        if demon_mode:
+            # Demon: flood loud sections with all available slots; respect silence
+            if intensity_ratio > 1.0:    # loud — every slot including weak
+                keep_slots = list(measure_slots)
+            elif intensity_ratio > 0.85:  # normal — medium + strong
+                keep_slots = [s for s in measure_slots if s.priority >= 2]
+            elif intensity_ratio < 0.6:   # very quiet — one strong max (same as others)
+                strong = [s for s in measure_slots if s.priority >= 3]
+                keep_slots = strong[:1] if strong else []
+            else:                         # quiet — strong only
+                keep_slots = [s for s in measure_slots if s.priority >= 3]
+        else:
+            # ADJUST SLOT DENSITY BASED ON INTENSITY
+            if intensity_ratio > 1.3:  # very loud — allow medium + strong
+                keep_slots = [s for s in measure_slots if s.priority >= 2]
+            elif intensity_ratio > 1.0:  # moderately loud — strong only
+                keep_slots = [s for s in measure_slots if s.priority >= 3]
+            elif intensity_ratio < 0.6:  # very quiet — top strong slot only
+                strong = [s for s in measure_slots if s.priority >= 3]
+                keep_slots = strong[:1] if strong else []
+            elif intensity_ratio < 0.85:  # quiet — strong only, cap at 1
+                strong = [s for s in measure_slots if s.priority >= 3]
+                keep_slots = strong[:1] if strong else []
+            else:  # normal — strong only
+                keep_slots = [s for s in measure_slots if s.priority >= 3]
 
+        min_gap = 0.12 if not demon_mode else 0.10
         if len(keep_slots) > 1:
             keep_slots.sort(key=lambda s: s.time)
             filtered = [keep_slots[0]]
 
             for slot in keep_slots[1:]:
-                if slot.time - filtered[-1].time >= 0.12:
+                if slot.time - filtered[-1].time >= min_gap:
                     filtered.append(slot)
 
             adjusted_measures.append(filtered)

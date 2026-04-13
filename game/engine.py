@@ -448,6 +448,8 @@ class Game(EffectsMixin, MechanicsMixin):
             self._hitsound = pygame.mixer.Sound(_hitsound_path)
         except Exception:
             pass
+        # scheduled hitsounds: list of perf_counter times at which to fire
+        self._pending_hitsounds: list[float] = []
 
     # ------------------------------------------------------------------
     # Rendering
@@ -564,6 +566,14 @@ class Game(EffectsMixin, MechanicsMixin):
     def update(self, dt: float) -> None:
         self.screen.fill((0, 0, 0))
 
+        # fire any hitsounds that were scheduled for an early-hit delay
+        _now = time.perf_counter()
+        _fired = [t for t in self._pending_hitsounds if _now >= t]
+        if _fired and self._hitsound:
+            for _ in _fired:
+                self._hitsound.play()
+        self._pending_hitsounds = [t for t in self._pending_hitsounds if _now < t]
+
         current_time = time.perf_counter() - self.rhythm.start_time
 
         self.update_dynamic_scroll_speed(current_time)
@@ -665,6 +675,7 @@ class Game(EffectsMixin, MechanicsMixin):
                     _hy = 380
                     _hit_evt = self.rhythm.beat_map[current_char_idx] if current_char_idx < len(self.rhythm.beat_map) else None
                     _hit_color = self.note_renderer._note_color_map.get(_hit_evt.timestamp, 'blue') if _hit_evt else 'blue'
+                    _time_until_hit = 0.0
                     if _hit_evt is not None:
                         _time_until_hit = _hit_evt.timestamp - current_time
                         if _hit_evt.from_left:
@@ -677,7 +688,11 @@ class Game(EffectsMixin, MechanicsMixin):
                     else:
                         _hx = int(self.hit_marker_current_x)
                     if self._hitsound:
-                        self._hitsound.play()
+                        if _time_until_hit > 0:
+                            # hit early — schedule sound to fire at the note's timestamp
+                            self._pending_hitsounds.append(time.perf_counter() + _time_until_hit)
+                        else:
+                            self._hitsound.play()
                     if judgment != 'hold_started':
                         self.trigger_hit_ripple(_hx, _hy)
                         self.trigger_note_hit_anim(_hx, _hy, _hit_color)

@@ -122,16 +122,19 @@ def main():
         if result is None:
             break
 
-        selected, difficulty, word_bank = result
+        selected, difficulty, word_bank, bpm = result
 
         level = Level(
             word_bank=word_bank,
             song_path=SONG_PATH + SONG_NAMES[selected],
             difficulty=difficulty,
+            bpm=bpm,
         )
 
         # ==========================TO DO LIST
 
+        # can add personality to songs by repeating word patterns for very difficult seuqneces
+        
         # hold note -> noki meows to music for duration of hold note
 
         # don't repeat same letter if single letter
