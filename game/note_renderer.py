@@ -163,7 +163,20 @@ class NoteRenderer:
                             note_surf = g.default_note_img
                         else:
                             note_color = self._note_color_map.get(event.timestamp, 'blue')
-                            note_surf = g.note_sprites[note_color]
+                            if g.scroll_speed >= g.FAST_NOTE_THRESHOLD:
+                                seq = g.fast_note_sprites.get(note_color)
+                                base_surf = (seq.current if seq and seq.ready else None) or g.note_sprites[note_color]
+                                # Stretch horizontally: 1.0x at threshold → 1.5x at max speed
+                                _t = max(0.0, min(1.0, (g.scroll_speed - g.FAST_NOTE_THRESHOLD)
+                                                       / (g.FAST_NOTE_MAX_SPEED - g.FAST_NOTE_THRESHOLD)))
+                                _sx = 1.0 + _t * 0.5
+                                w, h = base_surf.get_size()
+                                note_surf = pygame.transform.smoothscale(base_surf, (int(w * _sx), h))
+                                # Mirror when coming from the left
+                                if note_from_left:
+                                    note_surf = pygame.transform.flip(note_surf, True, False)
+                            else:
+                                note_surf = g.note_sprites[note_color]
                         if is_missed:
                             note_surf = note_surf.copy()
                             note_surf.fill((255, 80, 80, 0), special_flags=pygame.BLEND_RGBA_MULT)

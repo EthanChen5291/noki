@@ -7,11 +7,110 @@ import math
 from . import constants as C
 from .menu_utils import _FONT
 
+# Colors cycling for repeat word dots (orange first, then impulse particle colors)
+_REPEAT_COLORS = [
+    (255, 193, 142),   # orange  — first repeat
+    (142, 204, 255),   # blue
+    (255, 170, 241),   # pink
+    (142, 255, 194),   # green
+]
+
+# Note color name → RGB (matches NoteRenderer / effects.py)
+_NOTE_COLOR_RGB: dict[str, tuple] = {
+    'blue':   (142, 204, 255),
+    'pink':   (255, 170, 241),
+    'green':  (142, 255, 194),
+    'orange': (255, 193, 142),
+}
+
 
 class WordRenderer:
 
     def __init__(self, game) -> None:
         self.game = game
+        # Lazily built: word_text -> total occurrence count in beat_map
+        self._word_total_counts: dict[str, int] | None = None
+        # word_text -> how many times we've started displaying it so far
+        self._word_seen_count: dict[str, int] = {}
+        # last word we incremented the seen counter for
+        self._last_counted_word: str | None = None
+
+    # ------------------------------------------------------------------
+    # Repeat-word tracking helpers
+    # ------------------------------------------------------------------
+
+    def _build_word_counts(self) -> None:
+        """Count how many distinct word slots each word_text occupies."""
+        g = self.game
+        counts: dict[str, int] = {}
+        seen_start: set[tuple] = set()
+        for ev in g.rhythm.beat_map:
+            if ev.is_rest or not ev.word_text or ev.char_idx != 0:
+                continue
+            key = (ev.word_text, ev.timestamp)
+            if key in seen_start:
+                continue
+            seen_start.add(key)
+            counts[ev.word_text] = counts.get(ev.word_text, 0) + 1
+        self._word_total_counts = counts
+
+    def _repeat_info(self, word: str) -> tuple[int, int]:
+        """Return (appearance_index, total_count) for *word*.
+
+        appearance_index is 0-based (0 = first time seen).
+        """
+        if self._word_total_counts is None:
+            self._build_word_counts()
+        total = self._word_total_counts.get(word, 1)
+        seen  = self._word_seen_count.get(word, 0)
+        return seen, total
+
+    def _maybe_advance_seen(self, word: str) -> None:
+        """Increment the seen counter when we first display a new word slot."""
+        if word != self._last_counted_word:
+            self._last_counted_word = word
+            self._word_seen_count[word] = self._word_seen_count.get(word, 0) + 1
+
+    # ------------------------------------------------------------------
+    # Note-color helpers
+    # ------------------------------------------------------------------
+
+    def _note_rgb_for_event_ts(self, timestamp: float) -> tuple:
+        color_name = self.game.note_renderer._note_color_map.get(timestamp, 'blue')
+        return _NOTE_COLOR_RGB.get(color_name, (255, 255, 255))
+
+    def _word_note_color(self, word_text: str, search_from: int = 0) -> tuple:
+        """Return the RGB note color for the first matching word-start event at or after search_from."""
+        for ev in self.game.rhythm.beat_map[search_from:]:
+            if ev.is_rest or ev.char_idx != 0 or ev.word_text != word_text:
+                continue
+            return self._note_rgb_for_event_ts(ev.timestamp)
+        return (255, 255, 255)
+
+    def _current_word_note_color(self) -> tuple:
+        """Note color for the currently active word slot."""
+        g = self.game
+        idx = min(g.rhythm.char_event_idx, len(g.rhythm.beat_map) - 1)
+        # Scan backward from current event to find char_idx==0 of this word
+        current_word = g.rhythm.current_display_word()
+        for i in range(idx, -1, -1):
+            ev = g.rhythm.beat_map[i]
+            if ev.is_rest or ev.word_text != current_word:
+                continue
+            if ev.char_idx == 0:
+                return self._note_rgb_for_event_ts(ev.timestamp)
+        return (255, 255, 255)
+
+    def _prev_word_note_color(self, prev_word: str) -> tuple:
+        """Note color for the most recent past slot of prev_word."""
+        g = self.game
+        idx = min(g.rhythm.char_event_idx, len(g.rhythm.beat_map) - 1)
+        for i in range(idx, -1, -1):
+            ev = g.rhythm.beat_map[i]
+            if ev.is_rest or ev.char_idx != 0 or ev.word_text != prev_word:
+                continue
+            return self._note_rgb_for_event_ts(ev.timestamp)
+        return (255, 255, 255)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -59,6 +158,9 @@ class WordRenderer:
         fading_out: bool = False,
         adjacent_word_width: int = 0,
         y_offset: float = 0,
+        repeat_color: tuple | None = None,
+        repeat_scale_bonus: float = 0.0,
+        word_color: tuple | None = None,
     ) -> None:
         """Draw a word with 3D carousel rotation animation."""
         g = self.game
@@ -83,11 +185,15 @@ class WordRenderer:
 
         base_spacing = 100
 
+        # Derive side color: ~60% brightness of note color, or neutral gray
+        _side_color = (tuple(int(c * 0.6) for c in word_color)
+                       if word_color else (150, 150, 150))
+
         if position == 'center':
             target_angle = 0
-            target_scale = 1.0
+            target_scale = 1.0 + repeat_scale_bonus
             target_alpha = 255
-            target_color = (255, 255, 255)
+            target_color = word_color if word_color is not None else (255, 255, 255)
             target_char_spacing = base_char_spacing
         elif position == 'right':
             width_factor = (total_width + adjacent_word_width) / 2
@@ -95,7 +201,7 @@ class WordRenderer:
             target_angle = dynamic_spacing / radius
             target_scale = 0.75
             target_alpha = 180
-            target_color = (150, 150, 150)
+            target_color = _side_color
             target_char_spacing = base_char_spacing * 0.7
         else:
             width_factor = (total_width + adjacent_word_width) / 2
@@ -103,7 +209,7 @@ class WordRenderer:
             target_angle = -dynamic_spacing / radius
             target_scale = 0.75
             target_alpha = int(180 * (1 - transition_progress)) if fading_out else 180
-            target_color = (150, 150, 150)
+            target_color = _side_color
             target_char_spacing = base_char_spacing * 0.7
 
         if position == 'center' and transition_progress < 1.0:
@@ -115,8 +221,11 @@ class WordRenderer:
             current_scale = 0.75 + (target_scale - 0.75) * transition_progress
             current_alpha = int(180 + (target_alpha - 180) * transition_progress)
 
-            gray_amount = int(150 + (255 - 150) * transition_progress)
-            current_color = (gray_amount, gray_amount, gray_amount)
+            # Blend from dim note color (side brightness) toward full note color
+            start_c = _side_color
+            end_c   = target_color
+            current_color = tuple(int(start_c[i] + (end_c[i] - start_c[i]) * transition_progress)
+                                  for i in range(3))
 
             start_char_spacing = base_char_spacing * 0.7
             current_char_spacing = start_char_spacing + (target_char_spacing - start_char_spacing) * transition_progress
@@ -166,6 +275,50 @@ class WordRenderer:
                         (int(line_x + underline_width), int(line_y)),
                         3,
                     )
+
+        # Draw remaining-repeat dots to the right of a center repeat word
+        if position == 'center' and repeat_color is not None:
+            self._draw_repeat_dots(
+                word, current_x, center_y,
+                current_char_spacing, final_scale,
+                repeat_color, final_alpha,
+            )
+
+    def _draw_repeat_dots(
+        self,
+        word: str,
+        word_start_x: float,
+        word_y: float,
+        char_spacing: float,
+        scale: float,
+        color: tuple,
+        alpha: int,
+    ) -> None:
+        """Draw a vertical column of dots to the right of the word showing remaining repeats."""
+        if self._word_total_counts is None:
+            return
+        total = self._word_total_counts.get(word, 1)
+        seen  = self._word_seen_count.get(word, 1)  # already incremented
+        remaining = total - seen  # repeats still to come after this one
+        if remaining <= 0:
+            return
+
+        g = self.game
+        word_right_x = word_start_x + len(word) * char_spacing * scale
+        dot_x = int(word_right_x + 10 * scale)
+        dot_r = max(3, int(5 * scale))
+        dot_gap = int(dot_r * 2 + 4)
+        # Vertically center the column on the word midpoint
+        font_h = int(48 * scale)
+        col_total_h = remaining * dot_gap - 4
+        dot_start_y = int(word_y + font_h / 2 - col_total_h / 2)
+
+        dot_surf = pygame.Surface((dot_r * 2, dot_r * 2), pygame.SRCALPHA)
+        pygame.draw.circle(dot_surf, (*color, alpha), (dot_r, dot_r), dot_r)
+
+        for k in range(remaining):
+            dy = dot_start_y + k * dot_gap
+            g.screen.blit(dot_surf, (dot_x - dot_r, dy - dot_r))
 
     def draw_background_word(self, word: str) -> None:
         """Draw the current word as a large, faded background element during dual-side mode."""
@@ -218,12 +371,35 @@ class WordRenderer:
         if current_word != g._last_displayed_word:
             g._word_transition_start = current_time
             g._last_displayed_word = current_word
+            if current_word:
+                self._maybe_advance_seen(current_word)
 
         transition_duration = 0.3
         transition_progress = min(1.0, (current_time - g._word_transition_start) / transition_duration)
         ease_progress = 1 - (1 - transition_progress) ** 3
 
         word_y_offset = g.word_current_y - g.word_normal_y
+
+        # Compute repeat styling for current word.
+        # Only style from the 2nd occurrence onward (seen >= 2) so the first
+        # time you encounter a word it's always plain white.
+        repeat_color = None
+        repeat_scale_bonus = 0.0
+        if current_word:
+            seen, total = self._repeat_info(current_word)
+            if total > 1 and seen >= 2:
+                # idx 0 = first repeat (orange), 1 = blue, 2 = pink, 3 = green …
+                idx = seen - 2
+                repeat_color = _REPEAT_COLORS[idx % len(_REPEAT_COLORS)]
+                # Each repeat makes it marginally larger: +3% per repeat, capped at +20%
+                repeat_scale_bonus = min(0.20, idx * 0.03)
+
+        # Note-based text colors for all three carousel positions
+        cur_note_color  = self._current_word_note_color() if current_word else None
+        next_note_color = (self._word_note_color(next_word, g.rhythm.char_event_idx)
+                           if next_word else None)
+        prev_note_color = (self._prev_word_note_color(g._previous_word)
+                           if g._previous_word else None)
 
         if current_word:
             self.draw_word_animated(
@@ -233,6 +409,9 @@ class WordRenderer:
                 is_current=True,
                 adjacent_word_width=next_word_width,
                 y_offset=word_y_offset,
+                repeat_color=repeat_color,
+                repeat_scale_bonus=repeat_scale_bonus,
+                word_color=cur_note_color,
             )
 
         if next_word:
@@ -243,6 +422,7 @@ class WordRenderer:
                 is_current=False,
                 adjacent_word_width=current_word_width,
                 y_offset=word_y_offset,
+                word_color=next_note_color,
             )
 
         if g._previous_word is not None and transition_progress < 1.0:
@@ -254,6 +434,7 @@ class WordRenderer:
                 fading_out=True,
                 adjacent_word_width=current_word_width,
                 y_offset=word_y_offset,
+                word_color=prev_note_color,
             )
 
         if transition_progress >= 1.0:

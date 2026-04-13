@@ -142,6 +142,22 @@ class Game(EffectsMixin, MechanicsMixin):
             'green':  _load_note_sprite('noki_note_green.png'),
             'orange': _load_note_sprite('noki_note_orange.png'),
         }
+
+        # Fast animated note sprites (PNG sequences) — shown when scroll_speed is high
+        from .ui_components import PNGSequenceSprite as _PSS
+        def _load_fast_seq(color_name):
+            folder = os.path.join(assets_path, f'{color_name}_fast')
+            return _PSS(folder, fps=18.0, scale=(_NOTE_SPRITE_SIZE, _NOTE_SPRITE_SIZE))
+        self.fast_note_sprites: dict[str, _PSS] = {
+            'blue':   _load_fast_seq('blue'),
+            'pink':   _load_fast_seq('pink'),
+            'green':  _load_fast_seq('green'),
+            'orange': _load_fast_seq('orange'),
+        }
+        # Scroll speed threshold above which fast sprites replace static ones,
+        # and the max speed used for the stretch ramp (1.0x at threshold → 1.5x at max).
+        self.FAST_NOTE_THRESHOLD: float = 400.0
+        self.FAST_NOTE_MAX_SPEED: float = 700.0
         _red_frames    = _load_hit_frames('noki_hit_red')
         _blue_frames   = _load_hit_frames('noki_hit_blue')
         _green_frames  = _load_hit_frames('noki_hit_green')
@@ -194,6 +210,9 @@ class Game(EffectsMixin, MechanicsMixin):
         def _worker():
             try:
                 song       = get_song_info(self.song_path, expected_bpm=level.bpm, normalize=True)
+                # Demon on canon songs: double the BPM for denser beat tracking if within range
+                if level.difficulty == "demon" and level.bpm is None and song.bpm * 2 <= 300:
+                    song = get_song_info(self.song_path, expected_bpm=int(song.bpm * 2), normalize=False)
                 bdur       = 60 / song.bpm
                 pace       = classify_pace(self.song_path, song.bpm)
                 dual_secs  = detect_dual_side_sections(
@@ -585,6 +604,10 @@ class Game(EffectsMixin, MechanicsMixin):
         self.update_hold_particles(dt)
         self.update_hit_bursts(dt)
         self.update_note_hit_anims(dt)
+
+        # Advance fast note sprite animations
+        for _seq in self.fast_note_sprites.values():
+            _seq.advance(dt)
         self.update_hitmarker_glow(dt)
 
         self.update_cat_animation()
@@ -689,8 +712,13 @@ class Game(EffectsMixin, MechanicsMixin):
                         _hx = int(self.hit_marker_current_x)
                     if self._hitsound:
                         if _time_until_hit > 0:
-                            # hit early — schedule sound to fire at the note's timestamp
-                            self._pending_hitsounds.append(time.perf_counter() + _time_until_hit)
+                            # hit early — fire just before the note's timestamp (40 ms lead)
+                            _lead = 0.04
+                            _delay = max(0.0, _time_until_hit - _lead)
+                            if _delay == 0.0:
+                                self._hitsound.play()
+                            else:
+                                self._pending_hitsounds.append(time.perf_counter() + _delay)
                         else:
                             self._hitsound.play()
                     if judgment != 'hold_started':

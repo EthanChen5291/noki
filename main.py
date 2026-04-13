@@ -132,9 +132,25 @@ def main():
         )
 
         # ==========================TO DO LIST
+        
+        # for repeat notes, make the word (like the word text itself) orange the first time and get marginally larger and swap colors between the colors of the impulse particles every time that word passes
+        
+        # hitosund should play a bit earlier before the timestamp if pressed within grace period and before
+
+        # remove signs 
+
+        # add ghost notes?
+
+        # make the purple more bluish (get hex)
+
+        # fast bpm for demon songs always
+
+        # do a check and for bouynce sections that aren't very quiet in both hard and demon sections, ensure there are words. sometimes in bounce sections there's no words for a bit of time (not all bounce sections are like this though)
+
+        # add a hitsound whenever finishing a hold note
 
         # can add personality to songs by repeating word patterns for very difficult seuqneces
-        
+
         # hold note -> noki meows to music for duration of hold note
 
         # don't repeat same letter if single letter

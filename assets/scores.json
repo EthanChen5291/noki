@@ -31,7 +31,8 @@
   },
   "tidalwave.mp3": {
     "master": 144850,
-    "classic": 31394
+    "classic": 31394,
+    "demon": 68054
   },
   "Toby Fox - Finale.mp3": {
     "master": 53280,
@@ -102,9 +103,18 @@
     "demon": 90931
   },
   "GHOST.mp3": {
-    "demon": 168629
+    "demon": 226500
   },
   "crystallized.mp3": {
     "demon": 50407
+  },
+  "Skeletal Shenanigans (Demon) by YoReid & Airzyy  Geometry Dash 2.2.mp3": {
+    "demon": 57921
+  },
+  "THE WORLD REVOLVING (Camellia Remix) [From Deltarune Ch.01].mp3": {
+    "demon": 85172
+  },
+  "Orbit - Full OST  Geometry Dash Level.mp3": {
+    "demon": 32411
   }
 }
