@@ -467,6 +467,7 @@ class Game(EffectsMixin, MechanicsMixin):
         self._hitsound: pygame.mixer.Sound | None = None
         try:
             self._hitsound = pygame.mixer.Sound(_hitsound_path)
+            self._hitsound.set_volume(0.75)
         except Exception:
             pass
         # scheduled hitsounds: list of perf_counter times at which to fire

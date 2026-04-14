@@ -138,18 +138,12 @@ def main():
         # hitmarker is gray and skinny and then becomes the heart's color and becomes thicker and glows.
 
         # for repeat notes, make the word (like the word text itself) orange the first time and get marginally larger and swap colors between the colors of the impulse particles every time that word passes
-        
-        # hitosund should play a bit earlier before the timestamp if pressed within grace period and before
-
+    
         # remove signs 
 
         # add ghost notes?
 
         # make the purple more bluish (get hex)
-
-        # fast bpm for demon songs always
-
-        # do a check and for bouynce sections that aren't very quiet in both hard and demon sections, ensure there are words. sometimes in bounce sections there's no words for a bit of time (not all bounce sections are like this though)
 
         # add a hitsound whenever finishing a hold note
 
