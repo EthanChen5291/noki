@@ -134,6 +134,11 @@ def main():
         # ==========================TO DO LIST
         
 
+        # make the mouse a circle (like osu?)
+
+        # prevent freezing when uploading 
+        # add loading screen when finishing level
+
         # hearts circle around the cat's neck -> when lose a life, one of the hearts flies to the hitmarker and becomes the hitmarker
         # 2 second cooldown -> hitmarker flashes during cooldown and fly to hitmarker animation plays. 
         # hitmarker is gray and skinny and then becomes the heart's color and becomes thicker and glows.

@@ -1,149 +1,227 @@
-<img src="assets/images/noki_preview.png" alt="Noki Preview" width="400">
+# Noki
 
-## What is this?
+<img src="assets/images/noki_preview.png" alt="Noki Preview" width="600">
 
-**noki** is a rhythm game engine that generates playable typing levels from:
-- any audio file
-- any list of words
+> A rhythm-based typing system that trains touch-typing by syncing input to visual beats.
+> Music becomes interactive typing challenges — making practice engaging and habit-forming.
 
-Instead of hand-designing levels, the system analyzes the music and constructs a beatmap automatically.
+## 🌟 Features
 
----
+- **Automatic beatmap generation** from any MP3/WAV — no manual charting required
+- **Custom parsing pipeline** that converts audio features into precisely timed input events
+- **4 difficulty modes**: Journey, Classic, Master, Demon — scaling from beginner to extreme
+- **Dynamic scroll speed** that responds to song intensity in real time
+- **Bounce Mode** — timeline reverses direction on high-energy beats
+- **Dual-Side Mode** — notes stream from both directions during climax sections
+- **Hold notes** detected automatically from low-intensity audio regions
+- **Repeat word system** with color-cycling visual indicators per occurrence
+- **Animated cat mascot (Noki)** with state-based sprite sequences
+- **Persistent high scores** per song and difficulty
+- **Custom song support** via file upload with optional BPM override
+- **Canon song library** with 14+ built-in tracks
 
-### Prerequisites
-Before running noki, ensure you have the following installed:
+## 🏗️ Architecture
 
-- Python 3.8+
-- pip (Python package manager)
-- FFmpeg (Required for certain audio processing libraries like librosa or pydub)
-
-Setup Steps:
-
-1. Clone the repository
-
-```bash
-git clone https://github.com/EthanChen5291/noki_rhythm_engine.git
-cd noki_rhythm_engine
+```
+┌────────────────────────┐
+│   Audio File (MP3/WAV) │
+└──────────┬─────────────┘
+           │
+           │  BPM · beat times · intensity · drops
+           │
+┌──────────▼─────────────────────────────────┐
+│  Audio Analysis                             │  librosa · scipy · numpy
+│  analysis/audio_analysis.py                 │  soundfile · audioread
+└──────────┬─────────────────────────────────┘
+           │
+           │  rhythm slots · intensity profile · hold regions
+           │
+┌──────────▼─────────────────────────────────┐
+│  Beatmap Generator                          │  beatmap_generator.py
+│  (audio features → timed input events)      │  slot_builder.py
+└──────────┬─────────────────────────────────┘
+           │
+           │  CharEvent list (char + timestamp + word metadata)
+           │
+┌──────────▼─────────────────────────────────┐
+│  Game Engine                                │  engine.py · rhythm.py
+│  (run loop · input · scoring · physics)     │  mechanics.py · input.py
+└──────────┬─────────────────────────────────┘
+           │
+           │  draw calls · particle events · UI state
+           │
+┌──────────▼─────────────────────────────────┐
+│  Renderer Layer                             │  pygame · cv2
+│  (timeline · notes · words · effects)       │  word_renderer · note_renderer
+└────────────────────────────────────────────┘
 ```
 
-2. Create a Virtual Environment (Recommended)
+### Technology Stack
+
+| Layer | Technology |
+|---|---|
+| Language | Python 3.8+ |
+| Game Engine | Pygame 2.6.1 |
+| Audio Analysis | librosa 0.11.0, scipy 1.17.0, numpy 2.3.5 |
+| Video Decoding | OpenCV (cv2) 4.13.0 |
+| Audio I/O | soundfile 0.13.1, audioread 3.1.0 |
+| System Dependency | FFmpeg (required by librosa) |
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Python 3.8+
+- FFmpeg installed and on your system PATH
+
+### 1. Clone the Repository
+
+```bash
+git clone <repository-url>
+cd key-dash
+```
+
+### 2. Create a Virtual Environment
 
 ```bash
 python -m venv venv
+source venv/bin/activate      # macOS / Linux
+# or: venv\Scripts\activate   # Windows
 ```
 
-
-### Activate it:
-
-
-macOS / Linux
-
-```bash
-source venv/bin/activate`
-```
-
-Windows
-
-```bash
-venv\Scripts\activate
-```
-
-
-3. Install Dependencies
+### 3. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-
-4. Run the Game
+### 4. Run the Game
 
 ```bash
 python main.py
 ```
 
+**Menu flow:**
+1. Title screen → select a song (canon library or upload your own)
+2. Level menu → choose difficulty, word bank, and optionally override BPM
+3. Play the level — type each word in sync with the beat
+4. Scores are saved automatically per song and difficulty
 
-## Running locally
+## 📖 Project Structure
 
-Clone the repo:
-`git clone https://github.com/EthanChen5291/noki_rhythm_engine.git`
+```
+key-dash/
+├── main.py                     # Entry point — menu loop, level loading
+├── game/
+│   ├── engine.py               # Main Game class (run loop, update, rendering)
+│   ├── beatmap_generator.py    # Public API for beatmap generation
+│   ├── slot_builder.py         # Rhythm slot building & word-to-slot assignment
+│   ├── rhythm.py               # RhythmManager — timing windows, scoring, combo
+│   ├── mechanics.py            # Scroll speed, bounce mode, dual-side mode
+│   ├── effects.py              # Particles, shockwaves, screen shake
+│   ├── note_renderer.py        # Note sprite & hold-bar rendering
+│   ├── word_renderer.py        # Word carousel, repeat coloring, underline
+│   ├── timeline_renderer.py    # Timeline background + beat/measure lines
+│   ├── edge_glitch.py          # Edge glitch visual effect
+│   ├── models.py               # Data classes (CharEvent, Word, Song, …)
+│   ├── constants.py            # Difficulty profiles & all tunable parameters
+│   ├── input.py                # Keyboard input handler
+│   ├── menu.py                 # Menu state machine, pause screen
+│   ├── music.py                # Background music manager
+│   ├── ui_components.py        # Buttons, petal animations, text input, widgets
+│   └── screens/                # Title, level select, level menu, upload screens
+├── analysis/
+│   └── audio_analysis.py       # BPM detection, intensity, drops, dual-sections
+├── assets/
+│   ├── audios/                 # Canon song audio files (MP3/WAV)
+│   ├── images/                 # Sprites, hit-effect frames, animated notes, font
+│   ├── scores.json             # Persistent high scores per song + difficulty
+│   ├── custom_songs.json       # User-uploaded song list
+│   ├── custom_bpms.json        # User BPM overrides
+│   └── song_words.json         # Cached word banks per song
+└── tests/                      # Test suite
+```
 
-Enter the project:
-`cd noki_rhythm_engine`
+## 🎯 Core Concepts
 
-Install dependencies:
-`pip install -r requirements.txt`
+### Difficulty Modes
 
-Run the game:
-`python main.py`
+| Mode | CPS Target | Scroll Scale | Timing | Character |
+|---|---|---|---|---|
+| Easy  | 2.0 | 0.8× | Lenient | Long words, wide timing windows |
+| Fair  | 3.0 | 1.0× | Normal | Default balanced experience |
+| Hard  | 4.5 | 1.25× | Tight | Short words, bounce sections enabled |
+| Demon | 5.5 | 1.25× | Very tight | Burst spam, maximum note density |
+
+*CPS = characters per second target for word selection and slot density.*
+
+### Bounce Mode
+
+High-energy song sections trigger Bounce Mode. The timeline direction reverses at each bounce event, and notes alternate coming from the left and right sides of the hitmarker. Players must track direction changes while maintaining typing rhythm.
+
+### Dual-Side Mode
+
+During climax sections the timeline expands to full screen width and notes stream simultaneously from both sides. The cat mascot (Noki) animates between positions to indicate the active side.
+
+### Dynamic Scroll Speed
+
+Scroll speed continuously lerps between intensity tiers derived from the song's audio analysis. Energy spikes temporarily increase speed; quiet sections slow it down. The dual-side and bounce states apply additional damping to keep notes readable.
+
+### Hold Notes
+
+Low-intensity regions in the audio are detected as hold note candidates. Players must press and hold the key for the note's full duration — releasing early breaks the hold and triggers a miss penalty.
+
+### Scoring
+
+Each character hit is judged as **Perfect**, **Good**, or **OK** based on timing offset from the target beat. Misses reset the combo counter. Final score = weighted hit total × combo multiplier (capped at 2×).
+
+## ⚙️ Beatmap Generation Pipeline
+
+The core system converts raw audio into timed input events through six stages:
+
+1. **Audio Analysis** — extract BPM, beat times, per-beat intensity, section energy shifts, drop events, dual-side section boundaries, and hold regions
+2. **Slot Building** — generate candidate placement slots from 16th-note sub-beat subdivisions, prioritized by intensity (strong > medium > weak)
+3. **Intensity Adjustment** — prune slots in quiet measures, increase density in loud ones; Demon mode floods loud sections with all available slots
+4. **Word Preparation** — pre-compute ideal beat duration and rhythm-snapped CPS for every word in the selected word bank
+5. **Word Assignment** — match words to slots measure-by-measure, honoring difficulty CPS targets, quiet-skip probability, bounce grace zones, and hold region detection
+6. **Post-processing** — deduplicate events, cap hold durations so tails never overlap the next note, and trim events past the song's end
+
+## 📝 Configuration Files
+
+| File | Purpose |
+|---|---|
+| `assets/scores.json` | Persistent high scores: `{ song: { difficulty: score } }` |
+| `assets/custom_songs.json` | Names of user-uploaded custom songs |
+| `assets/custom_bpms.json` | BPM overrides: `{ song: bpm }` |
+| `assets/song_words.json` | Cached word banks (fetched from Genius lyrics or built-in default) |
+| `game/constants.py` | All tunable parameters: CPS targets, timing windows, max slots per measure, scroll speed multipliers, bounce threshold |
+
+## 🧪 Testing
+
+```bash
+cd key-dash
+pytest
+```
+
+Tests are located in `tests/` and cover audio analysis utilities and beatmap generation correctness.
+
+## 🐛 Troubleshooting
+
+**Audio analysis fails or no beats are detected**
+- Ensure FFmpeg is installed and available on your PATH — librosa requires it for MP3 decoding
+
+**pygame display errors on launch**
+- Confirm a display is available; on headless systems export `SDL_VIDEODRIVER=dummy`
+
+**Custom song doesn't appear in the menu**
+- Confirm the file is MP3 or WAV format; re-upload via the file upload screen in the level select menu
+
+**BPM feels off or notes don't line up with the music**
+- Use the BPM override field in the level menu to manually specify the correct BPM for that song
+
+**Low frame rate or stuttering**
+- Reduce the window size, or lower the animated fast-note sprite FPS in `game/constants.py`
 
 ---
 
-## Why I built this
-
-Most rhythm games rely on handcrafted maps. This leads to limitations in the variety of songs that can be played.
-
-I wanted to explore:
-> how close you can get to that “handmade feel” using deterministic systems + audio analysis
-
-The focus is on:
-- timing that matches the music
-- input patterns that feel natural
-- controlled randomness so levels don’t feel robotic
-
----
-
-## What it does
-
-- analyzes audio to estimate BPM, intensity, and structure
-- generates note timing aligned to beats and sub-beats
-- maps words into input sequences that are playable and ergonomic
-- adjusts scroll speed and density based on musical intensity
-
-You can drop in your own:
-- audio file
-- word bank
-
-and get a fully playable level.
-
----
-
-## Key systems
-
-**Audio analysis**
-- BPM detection + normalization
-- sub-beat intensity calculation
-- section-based intensity tracking
-
-**Beatmap generation**
-- deterministic timing with controlled variation
-- intensity-driven note density
-- pattern shaping based on rhythm structure
-
-**Gameplay**
-- typing-based input mapped to rhythm
-- dynamic scroll speed
-- real-time feedback and animations
-
----
-
-## Tech
-
-- Python  
-- Pygame  
-- NumPy / audio processing tools  
-
----
-
-## Limitations
-
-- generated maps are not always as polished as handcrafted ones  
-- audio analysis can struggle with complex or messy tracks  
-
----
-
-## Future work
-
-- better word selection (difficulty + keyboard coverage)  
-- improved phrase/melody alignment  
-- smarter difficulty scaling  
+**Noki** — where every keystroke lands on the beat 🎵⌨️
