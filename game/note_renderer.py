@@ -161,23 +161,54 @@ class NoteRenderer:
 
                         if event.hold_duration > 0:
                             note_surf = g.default_note_img
+                            if is_missed:
+                                note_surf = note_surf.copy()
+                                note_surf.fill((255, 80, 80, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                            g.screen.blit(note_surf, note_surf.get_rect(center=(int(marker_x), timeline_y)))
                         else:
                             note_color = self._note_color_map.get(event.timestamp, 'blue')
-                            if g.scroll_speed >= g.FAST_NOTE_THRESHOLD:
+                            _fa = g._fast_note_alpha  # 0.0 = normal, 1.0 = fast
+
+                            normal_surf = g.note_sprites[note_color]
+
+                            # Build fast_surf whenever alpha > 0 (fading in or fully fast)
+                            fast_surf = None
+                            if _fa > 0.0:
                                 seq = g.fast_note_sprites.get(note_color)
-                                base_surf = (seq.current if seq and seq.ready else None) or g.note_sprites[note_color]
-                                # Stretch horizontally: 1.0x at threshold → 1.5x at max speed
-                                _t = max(0.0, min(1.0, (g.scroll_speed - g.FAST_NOTE_THRESHOLD)
-                                                       / (g.FAST_NOTE_MAX_SPEED - g.FAST_NOTE_THRESHOLD)))
+                                fast_base = (seq.current if seq and seq.ready else None) or normal_surf
+                                if g.scroll_speed >= g.FAST_NOTE_THRESHOLD:
+                                    _t = max(0.0, min(1.0, (g.scroll_speed - g.FAST_NOTE_THRESHOLD)
+                                                           / (g.FAST_NOTE_MAX_SPEED - g.FAST_NOTE_THRESHOLD)))
+                                else:
+                                    _t = 0.0
                                 _sx = 1.0 + _t * 0.5
-                                w, h = base_surf.get_size()
-                                note_surf = pygame.transform.smoothscale(base_surf, (int(w * _sx), h))
-                                # Mirror when coming from the left
+                                w, h = fast_base.get_size()
+                                fast_surf = pygame.transform.smoothscale(fast_base, (int(w * _sx), h))
                                 if note_from_left:
-                                    note_surf = pygame.transform.flip(note_surf, True, False)
+                                    fast_surf = pygame.transform.flip(fast_surf, True, False)
+
+                            def _tint_missed(s):
+                                s = s.copy()
+                                s.fill((255, 80, 80, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                                return s
+
+                            if _fa <= 0.0 or fast_surf is None:
+                                # Fully normal sprite
+                                ns = _tint_missed(normal_surf) if is_missed else normal_surf
+                                g.screen.blit(ns, ns.get_rect(center=(int(marker_x), timeline_y)))
+                            elif _fa >= 1.0:
+                                # Fully fast sprite
+                                fs = _tint_missed(fast_surf) if is_missed else fast_surf
+                                g.screen.blit(fs, fs.get_rect(center=(int(marker_x), timeline_y)))
                             else:
-                                note_surf = g.note_sprites[note_color]
-                        if is_missed:
-                            note_surf = note_surf.copy()
-                            note_surf.fill((255, 80, 80, 0), special_flags=pygame.BLEND_RGBA_MULT)
-                        g.screen.blit(note_surf, note_surf.get_rect(center=(int(marker_x), timeline_y)))
+                                # Cross-fade: draw normal fading out, fast fading in
+                                ns = normal_surf.copy()
+                                ns.fill((255, 255, 255, int((1.0 - _fa) * 255)), special_flags=pygame.BLEND_RGBA_MULT)
+                                if is_missed:
+                                    ns.fill((255, 80, 80, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                                g.screen.blit(ns, ns.get_rect(center=(int(marker_x), timeline_y)))
+                                fs = fast_surf.copy()
+                                fs.fill((255, 255, 255, int(_fa * 255)), special_flags=pygame.BLEND_RGBA_MULT)
+                                if is_missed:
+                                    fs.fill((255, 80, 80, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                                g.screen.blit(fs, fs.get_rect(center=(int(marker_x), timeline_y)))

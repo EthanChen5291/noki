@@ -31,6 +31,43 @@ _SHORT_LETTERS: frozenset = frozenset('aceimnorstuvwxz')
 # Letters whose glow is shifted down 40% of glow height (descenders)
 _DESCENDER_LETTERS: frozenset = frozenset('gy')
 
+# Per-color glow opacity for procedural glow cache
+_GLOW_OPACITY: dict[str, float] = {
+    'blue': 0.22, 'green': 0.175, 'orange': 0.175, 'pink': 0.175,
+}
+
+
+def _make_glow_surface(font, text, text_color, glow_color,
+                       glow_radius=5, passes=3, glow_opacity=0.175, glow_x_shift=-2):
+    text_surf = font.render(text, True, text_color)
+    glow_surf = font.render(text, True, glow_color)
+    padding = glow_radius * 8
+    w = text_surf.get_width() + padding
+    h = text_surf.get_height() + padding
+    canvas = pygame.Surface((w, h), pygame.SRCALPHA)
+    canvas.blit(glow_surf, (padding // 2 + glow_x_shift, padding // 2))
+    blurred = canvas
+    for _ in range(passes):
+        small = pygame.transform.smoothscale(blurred, (max(1, w // glow_radius), max(1, h // glow_radius)))
+        blurred = pygame.transform.smoothscale(small, (w, h))
+    blurred.set_alpha(int(255 * glow_opacity))
+    final = pygame.Surface((w, h), pygame.SRCALPHA)
+    for _ in range(2):
+        final.blit(blurred, (0, 0))
+    final.blit(text_surf, (padding // 2, padding // 2))
+    return final
+
+
+def build_letter_glow_cache(font) -> dict[tuple, pygame.Surface]:
+    """Pre-render glowing letter surfaces at base size for each (char, color_name)."""
+    cache = {}
+    chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    for color_name, rgb in _NOTE_COLOR_RGB.items():
+        opacity = _GLOW_OPACITY.get(color_name, 0.175)
+        for char in chars:
+            cache[(char, color_name)] = _make_glow_surface(font, char, rgb, rgb, glow_opacity=opacity)
+    return cache
+
 
 class WordRenderer:
 
@@ -293,27 +330,15 @@ class WordRenderer:
             # Draw letter glow behind character (center word only)
             if position == 'center' and current_color:
                 color_name = _RGB_TO_COLOR_NAME.get(current_color, 'white')
-                glow_surf = g.letter_glow_imgs.get(color_name)
-                if glow_surf:
-                    base_glow_size = int(110 * final_scale)
-                    if char in _DESCENDER_LETTERS:
-                        glow_w = base_glow_size
-                        glow_h = base_glow_size
-                        glow_y_shift = int(base_glow_size * 0.08)
-                    elif char in _SHORT_LETTERS:
-                        # 10% more stretched in both dimensions
-                        glow_w = int(base_glow_size * 0.6 * 1.1)
-                        glow_h = int(base_glow_size * 0.6 * 1.1)
-                        glow_y_shift = int(base_glow_size * 0.05)
-                    else:
-                        glow_w = base_glow_size
-                        glow_h = base_glow_size
-                        glow_y_shift = 0
-                    glow_scaled = pygame.transform.smoothscale(glow_surf, (glow_w, glow_h))
-                    glow_scaled.set_alpha(int(final_alpha * 0.8))
-                    gx = int(char_x + char_font.size(char)[0] / 2 - glow_w / 2)
-                    gy = int(char_y + font_size / 2 - glow_h / 2) + glow_y_shift
-                    g.screen.blit(glow_scaled, (gx, gy))
+                cached = g.letter_glow_cache.get((char, color_name))
+                if cached:
+                    target_w = int(cached.get_width() * final_scale)
+                    target_h = int(cached.get_height() * final_scale)
+                    scaled_glow = pygame.transform.smoothscale(cached, (target_w, target_h))
+                    scaled_glow.set_alpha(int(final_alpha))
+                    gx = int(char_x + char_font.size(char)[0] / 2 - target_w / 2)
+                    gy = int(char_y + font_size / 2 - target_h / 2)
+                    g.screen.blit(scaled_glow, (gx, gy))
 
             char_surface = char_font.render(char, True, current_color)
             char_surface.set_alpha(final_alpha)

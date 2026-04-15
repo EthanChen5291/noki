@@ -21,7 +21,7 @@ from game.music import MusicManager
 
 # remove custom level button
 
-#noki clamp animation
+# noki clamp animation
 
 # make the pause button the old exit button 
 

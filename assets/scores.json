@@ -24,7 +24,8 @@
     "classic": 55272
   },
   "Decisive Battle.mp3": {
-    "master": 95003
+    "master": 95003,
+    "demon": 70550
   },
   "ICARIUS.mp3": {
     "classic": 103501,
@@ -128,6 +129,6 @@
     "demon": 147439
   },
   "Terraria Calamity Mod Music - UNIVERSAL COLLAPSE - Theme of Devourer of Gods (Final Form).wav": {
-    "demon": 50960
+    "demon": 147757
   }
 }

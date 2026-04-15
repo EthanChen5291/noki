@@ -30,6 +30,9 @@ class EffectsMixin:
     _note_hit_frames: list[pygame.Surface]
     note_hit_frames: dict[str, list[pygame.Surface]]
     _note_hit_fps: float
+    _judgment_glow_cache: dict[str, pygame.Surface]
+    _judgment_label: Optional[dict[str, Any]]
+    _perfect_rings: list[dict[str, Any]]
 
     # ── Screen shake ──
     _shake_x: float
@@ -115,6 +118,8 @@ class EffectsMixin:
         song_time = elapsed - self.rhythm.lead_in
         beat_times = self.song.beat_times
 
+        BOP_MAX_BPM = 220.0  # clamp animation speed to this BPM; halve if faster
+
         if beat_times and len(beat_times) >= 2 and song_time >= beat_times[0]:
             current_beat_idx = 0
             for i, bt in enumerate(beat_times):
@@ -126,12 +131,20 @@ class EffectsMixin:
                 beat_start = beat_times[current_beat_idx]
                 beat_end   = beat_times[current_beat_idx + 1]
                 phase = (song_time - beat_start) / (beat_end - beat_start)
+                beat_dur_local = beat_end - beat_start
             else:
                 phase = 0.0
-            normalized = ((current_beat_idx % 2) + phase) / 2.0
+                beat_dur_local = 60.0 / self.song.bpm
+            if beat_dur_local < 60.0 / BOP_MAX_BPM:
+                normalized = ((current_beat_idx % 4) + phase) / 4.0
+            else:
+                normalized = ((current_beat_idx % 2) + phase) / 2.0
         else:
             beat_dur   = 60.0 / self.song.bpm
-            normalized = (elapsed / beat_dur % 2.0) / 2.0
+            if self.song.bpm > BOP_MAX_BPM:
+                normalized = (elapsed / beat_dur % 4.0) / 4.0
+            else:
+                normalized = (elapsed / beat_dur % 2.0) / 2.0
 
         frame_idx = int(normalized * n) % n
         self._bop_surf = self._bop_frames[frame_idx]
@@ -393,3 +406,101 @@ class EffectsMixin:
                 anim['frame'] += self._note_hit_fps * dt
                 surviving.append(anim)
         self._note_hit_anims = surviving
+
+    # ------------------------------------------------------------------
+    # Judgment label (PERFECT / GOOD / OK)
+    # ------------------------------------------------------------------
+
+    def trigger_judgment(self, judgment: str, x: int, y: int) -> None:
+        """Spawn a rotating judgment label above (x, y). Replaces any active one."""
+        key = judgment.lower()
+        if key not in self._judgment_glow_cache:
+            return
+        self._judgment_label = {
+            'key': key,
+            'x': x,
+            'y': y,
+            't': 0.0,
+            'rings_spawned': False,
+        }
+        self._perfect_rings = []
+
+    def _draw_judgment_label(self, dt: float) -> None:
+        """Advance and draw the active judgment label and perfect rings."""
+        import math
+        import random as _rnd
+
+        # --- advance rings
+        surviving = []
+        for ring in self._perfect_rings:
+            ring['radius'] += ring['speed'] * dt
+            ring['alpha'] -= ring['fade_rate'] * dt
+            if ring['alpha'] > 0:
+                surviving.append(ring)
+        self._perfect_rings = surviving
+
+        # --- draw rings
+        for ring in self._perfect_rings:
+            a = max(0, int(ring['alpha']))
+            r = int(ring['radius'])
+            if r < 1:
+                continue
+            ring_surf = pygame.Surface((r * 2 + 4, r * 2 + 4), pygame.SRCALPHA)
+            pygame.draw.circle(ring_surf, (*ring['color'], a), (r + 2, r + 2), r, 2)
+            self.screen.blit(ring_surf, (int(ring['x']) - r - 2, int(ring['y']) - r - 2))
+
+        # --- draw label
+        if self._judgment_label is None:
+            return
+
+        lbl = self._judgment_label
+        lbl['t'] += dt
+
+        _SPIN_DUR  = 0.22  # seconds to spin in (quicker)
+        _HOLD_DUR  = 1.0   # seconds to hold
+        _FADE_DUR  = 0.35  # seconds to fade out
+        _TOTAL     = _SPIN_DUR + _HOLD_DUR + _FADE_DUR
+        _TARGET    = math.pi / 2.2  # target rotation angle
+        t = lbl['t']
+
+        if t >= _TOTAL:
+            self._judgment_label = None
+            return
+
+        # alpha
+        if t < _SPIN_DUR:
+            alpha = int((t / _SPIN_DUR) * 255)
+        elif t < _SPIN_DUR + _HOLD_DUR:
+            alpha = 255
+        else:
+            fade_progress = (t - _SPIN_DUR - _HOLD_DUR) / _FADE_DUR
+            alpha = int((1.0 - fade_progress) * 255)
+
+        # rotation: angle lerps 0 → _TARGET during spin-in, then holds
+        if t < _SPIN_DUR:
+            angle_rad = (t / _SPIN_DUR) * _TARGET
+        else:
+            angle_rad = _TARGET
+        # pi/2 would be horizontal; convert to pygame degrees (0 = horizontal)
+        pygame_deg = math.degrees(math.pi / 2 - angle_rad)
+
+        # spawn perfect rings exactly when spin-in ends
+        if lbl['key'] == 'perfect' and not lbl['rings_spawned'] and t >= _SPIN_DUR and alpha == 255:
+            lbl['rings_spawned'] = True
+            _PERFECT_COLOR = (0xFF, 0xDE, 0x7B)
+            count = _rnd.randint(2, 4)
+            for _ in range(count):
+                self._perfect_rings.append({
+                    'x': float(lbl['x']),
+                    'y': float(lbl['y']),
+                    'radius': float(_rnd.randint(4, 10)),
+                    'speed': float(_rnd.uniform(55, 110)),
+                    'alpha': float(_rnd.uniform(170, 220)),
+                    'fade_rate': float(_rnd.uniform(160, 240)),
+                    'color': _PERFECT_COLOR,
+                })
+
+        glow_surf = self._judgment_glow_cache[lbl['key']]
+        rotated = pygame.transform.rotozoom(glow_surf, pygame_deg, 1.0)
+        rotated.set_alpha(alpha)
+        self.screen.blit(rotated, rotated.get_rect(center=(lbl['x'], lbl['y'])))

@@ -31,7 +31,7 @@ from .screens import SettingsPanel
 from .menu_utils import _FONT
 from .effects import EffectsMixin
 from .mechanics import MechanicsMixin, BounceEvent
-from .word_renderer import WordRenderer
+from .word_renderer import WordRenderer, build_letter_glow_cache, _make_glow_surface
 from .timeline_renderer import TimelineRenderer
 from .note_renderer import NoteRenderer
 from .edge_glitch import EdgeGlitchRenderer
@@ -57,13 +57,34 @@ class Game(EffectsMixin, MechanicsMixin):
         self.score = 0
         self.misses = 0
         self.font = pygame.font.Font(_FONT, 48)
+        self.letter_glow_cache: dict[tuple, pygame.Surface] = build_letter_glow_cache(self.font)
         self._last_score = 0
         self._score_popups: list[dict] = []
         self._score_font = pygame.font.Font(_FONT, 56)
         self._popup_font = pygame.font.Font(_FONT, 38)
+        _score_color = (255, 255, 255)
+        self._score_glow_surf: pygame.Surface = _make_glow_surface(self._score_font, "0", _score_color, _score_color, glow_opacity=0.22)
+        self._score_glow_val: int = 0
 
         self._hold_particles: list[dict] = []
         self._hit_bursts: list[dict] = []
+
+        # --- judgment label (PERFECT / GOOD / OK) above hitmarker
+        _hv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                                'assets', 'images', 'fonts', 'Heavitas.ttf')
+        _PERFECT_COLOR = (0xFF, 0xDE, 0x7B)
+        _GOOD_COLOR    = (0x83, 0xE3, 0xB0)
+        _OK_COLOR      = (0xAE, 0xD0, 0xE6)
+        _jf_ok      = pygame.font.Font(_hv_path, 18)
+        _jf_good    = pygame.font.Font(_hv_path, 21)
+        _jf_perfect = pygame.font.Font(_hv_path, 25)
+        self._judgment_glow_cache: dict[str, pygame.Surface] = {
+            'perfect': _make_glow_surface(_jf_perfect, 'PERFECT', _PERFECT_COLOR, _PERFECT_COLOR, glow_opacity=0.30),
+            'good':    _make_glow_surface(_jf_good,    'GOOD',    _GOOD_COLOR,    _GOOD_COLOR,    glow_opacity=0.24),
+            'ok':      _make_glow_surface(_jf_ok,      'OK',      _OK_COLOR,      _OK_COLOR,      glow_opacity=0.22),
+        }
+        self._judgment_label: dict | None = None
+        self._perfect_rings: list[dict] = []
 
         self.message = None
         self.message_duration = 0.0
@@ -160,6 +181,8 @@ class Game(EffectsMixin, MechanicsMixin):
         # and the max speed used for the stretch ramp (1.0x at threshold → 1.5x at max).
         self.FAST_NOTE_THRESHOLD: float = 400.0
         self.FAST_NOTE_MAX_SPEED: float = 700.0
+        # Cross-fade alpha: 0.0 = normal sprites, 1.0 = fast sprites (~4 frame transition)
+        self._fast_note_alpha: float = 0.0
         _red_frames    = _load_hit_frames('noki_hit_red')
         _blue_frames   = _load_hit_frames('noki_hit_blue')
         _green_frames  = _load_hit_frames('noki_hit_green')
@@ -193,19 +216,37 @@ class Game(EffectsMixin, MechanicsMixin):
             (_hm_w, _hm_h)
         )
         # One-shot frame lists for speed-up / slow-down hitmarker overlays
-        def _load_seq_frames(folder, scale):
+        # base_size: natural (unscaled) pixel size of the reference image; used to
+        # compute the proportional target size when an animation sheet has a wider
+        # canvas than the base sprite so the visible sprite ends up the same size.
+        def _load_seq_frames(folder, target_size, base_size=None):
             d = os.path.join(assets_path, folder)
             if not os.path.isdir(d):
                 return []
             paths = sorted(p for p in (os.path.join(d, f) for f in os.listdir(d)) if p.lower().endswith('.png'))
-            return [pygame.transform.smoothscale(pygame.image.load(p).convert_alpha(), scale) for p in paths]
+            frames = []
+            for p in paths:
+                img = pygame.image.load(p).convert_alpha()
+                if base_size is not None:
+                    iw, ih = img.get_size()
+                    bw, bh = base_size
+                    tw, th = target_size
+                    scale = (round(tw * iw / bw), round(th * ih / bh))
+                else:
+                    scale = target_size
+                frames.append(pygame.transform.smoothscale(img, scale))
+            return frames
 
-        self._speed_hitmarker_frames: list[pygame.Surface] = _load_seq_frames('speed_hitmarker', (_hm_w, _hm_h))
-        self._slow_hitmarker_frames:  list[pygame.Surface] = _load_seq_frames('slow_hitmarker',  (_hm_w, _hm_h))
+        _hm_raw = pygame.image.load(os.path.join(assets_path, 'hitmarker.png'))
+        _hm_base_size = _hm_raw.get_size()
+        self._speed_hitmarker_frames: list[pygame.Surface] = _load_seq_frames('speed_hitmarker', (_hm_w, _hm_h), _hm_base_size)
+        self._slow_hitmarker_frames:  list[pygame.Surface] = _load_seq_frames('slow_hitmarker',  (_hm_w, _hm_h), _hm_base_size)
 
         _ml_w, _ml_h = self._measureline_img.get_size()
-        self._speed_measureline_frames: list[pygame.Surface] = _load_seq_frames('measureline_speed', (_ml_w, _ml_h))
-        self._slow_measureline_frames:  list[pygame.Surface] = _load_seq_frames('measureline_slow',  (_ml_w, _ml_h))
+        _ml_raw = pygame.image.load(os.path.join(assets_path, 'measureline.png'))
+        _ml_base_size = _ml_raw.get_size()
+        self._speed_measureline_frames: list[pygame.Surface] = _load_seq_frames('measureline_speed', (_ml_w, _ml_h), _ml_base_size)
+        self._slow_measureline_frames:  list[pygame.Surface] = _load_seq_frames('measureline_slow',  (_ml_w, _ml_h), _ml_base_size)
 
         # Independent one-shot animation states for hitmarker and measurelines
         self._hitmarker_anim_state:   str   = 'normal'
@@ -219,14 +260,11 @@ class Game(EffectsMixin, MechanicsMixin):
         # Glow flash state: elapsed seconds since trigger, -1 = inactive
         self._glow_press_t: float = -1.0
 
-        # Letter glow overlays — one pre-colored PNG per note color + white fallback
-        self.letter_glow_imgs: dict[str, pygame.Surface] = {
-            'blue':   pygame.image.load(os.path.join(assets_path, 'blueletterglow.png')).convert_alpha(),
-            'green':  pygame.image.load(os.path.join(assets_path, 'greenletterglow.png')).convert_alpha(),
-            'orange': pygame.image.load(os.path.join(assets_path, 'orangeletterglow.png')).convert_alpha(),
-            'pink':   pygame.image.load(os.path.join(assets_path, 'pinkletterglow.png')).convert_alpha(),
-            'white':  pygame.image.load(os.path.join(assets_path, 'letterglow.png')).convert_alpha(),
-        }
+        # Hitmarker shake (miss) — countdown from 1.0 to 0.0 over 1 second
+        self._hm_shake_t: float = 0.0
+        # Hitmarker scale (correct hit) — bumps to 1.12, lerps back to 1.0
+        self._hm_scale: float = 1.0
+
 
         # Petal spinner images
         _psz = 40
@@ -479,7 +517,7 @@ class Game(EffectsMixin, MechanicsMixin):
         self._in_level_settings: SettingsPanel | None = None
 
         # --- in-level image buttons (leave + settings) ---
-        _btn_w, _btn_h = 80, 80
+        _btn_w, _btn_h = 104, 104
         _btn_margin = 20
         _leave_raw = pygame.image.load(
             os.path.join(assets_path, 'leavebutton.png')
@@ -497,6 +535,9 @@ class Game(EffectsMixin, MechanicsMixin):
         self._level_settings_rect = pygame.Rect(
             _btn_margin, _btn_margin, _btn_w, _btn_h
         )
+        # lerp scales for hover animation (1.0 = normal, 1.12 = hovered)
+        self._leave_scale: float = 1.0
+        self._level_settings_scale: float = 1.0
 
         # --- renderer managers ---
         self.word_renderer = WordRenderer(self)
@@ -673,6 +714,13 @@ class Game(EffectsMixin, MechanicsMixin):
         for _seq in self.fast_note_sprites.values():
             _seq.advance(dt)
 
+        # Lerp fast-note cross-fade alpha (4 frames at 60fps → step of 15/s)
+        _fast_step = 15.0 * dt
+        if self.scroll_speed >= self.FAST_NOTE_THRESHOLD:
+            self._fast_note_alpha = min(1.0, self._fast_note_alpha + _fast_step)
+        else:
+            self._fast_note_alpha = max(0.0, self._fast_note_alpha - _fast_step)
+
         # --- energy-shift base state (drives both hitmarker + measureline)
         _song_t = current_time - self.rhythm.lead_in
         _active_shift = None
@@ -707,17 +755,19 @@ class Game(EffectsMixin, MechanicsMixin):
         # --- bounce direction change: affect both hitmarker + measureline
         if self.bounce_active:
             if self.bounce_reversed and not _was_bounce_reversed:
-                _set_hm('slow_down')
-                _set_ml('slow_down')
-            elif not self.bounce_reversed and _was_bounce_reversed:
                 _set_hm('speed_up')
                 _set_ml('speed_up')
+            elif not self.bounce_reversed and _was_bounce_reversed:
+                _set_hm('slow_down')
+                _set_ml('slow_down')
 
         # --- advance frame counters (stop at end — no looping)
         self._hitmarker_anim_frame   += (14.0 if self._hitmarker_anim_state   == 'speed_up' else 12.0 if self._hitmarker_anim_state   == 'slow_down' else 0.0) * dt
         self._measureline_anim_frame += (14.0 if self._measureline_anim_state == 'speed_up' else 12.0 if self._measureline_anim_state == 'slow_down' else 0.0) * dt
 
         self.update_hitmarker_glow(dt)
+        self._hm_shake_t = max(0.0, self._hm_shake_t - dt)
+        self._hm_scale += (1.0 - self._hm_scale) * min(1.0, 12.0 * dt)
 
         self.update_cat_animation()
         hurt_surf = self.update_hurt_animation(dt)
@@ -793,6 +843,7 @@ class Game(EffectsMixin, MechanicsMixin):
                     self.misses += 1
                     self.show_message("Missed!", 1)
                     self.trigger_hurt()
+                    self._hm_shake_t = 1.0
 
             self.used_current_char = False
             self.last_char_idx = current_char_idx
@@ -849,13 +900,19 @@ class Game(EffectsMixin, MechanicsMixin):
                         self.show_message("HOLD...", 0.5)
                     elif judgment == 'perfect':
                         self._glow_press_t = 0.0
+                        self._hm_scale = 1.12
                         self.show_message(f"PERFECT! ×{combo}", 0.8)
+                        self.trigger_judgment('perfect', int(self.hit_marker_current_x) - 40, 315)
                     elif judgment == 'good':
                         self._glow_press_t = 0.0
+                        self._hm_scale = 1.12
                         self.show_message(f"Good ×{combo}", 0.8)
+                        self.trigger_judgment('good', int(self.hit_marker_current_x) - 40, 315)
                     elif judgment == 'ok':
                         self._glow_press_t = 0.0
+                        self._hm_scale = 1.12
                         self.show_message(f"OK ×{combo}", 0.8)
+                        self.trigger_judgment('ok', int(self.hit_marker_current_x) - 40, 315)
 
                     self.score = self.rhythm.get_score()
                     self.used_current_char = True
@@ -880,12 +937,16 @@ class Game(EffectsMixin, MechanicsMixin):
                     if hold_result['hit']:
                         j = hold_result['judgment']
                         combo = hold_result['combo']
+                        self._hm_scale = 1.12
                         if 'perfect' in j:
                             self.show_message(f"HOLD PERFECT! ×{combo}", 1.0)
+                            self.trigger_judgment('perfect', int(self.hit_marker_current_x) - 40, 315)
                         elif 'good' in j:
                             self.show_message(f"HOLD Good ×{combo}", 1.0)
+                            self.trigger_judgment('good', int(self.hit_marker_current_x) - 40, 315)
                         else:
                             self.show_message(f"HOLD OK ×{combo}", 1.0)
+                            self.trigger_judgment('ok', int(self.hit_marker_current_x) - 40, 315)
                         self.trigger_hit_ripple(int(self.hit_marker_current_x), 380)
                         self.score = self.rhythm.get_score()
                     else:
@@ -896,6 +957,7 @@ class Game(EffectsMixin, MechanicsMixin):
                         self.misses = self.rhythm.miss_count
 
         self.render_timeline()
+        self._draw_judgment_label(dt)
 
         # ----- SCORE / MISSES
         stats = self.rhythm.get_stats()
@@ -907,36 +969,43 @@ class Game(EffectsMixin, MechanicsMixin):
         if current_score > self._last_score:
             delta = current_score - self._last_score
             ref_h = self._score_font.get_height()
+            _popup_color = (255, 220, 80)
             self._score_popups.append({
                 "delta": delta,
                 "y": float(sh - margin_y - ref_h - 8),
                 "alpha": 255.0,
+                "glow_surf": _make_glow_surface(self._popup_font, f"+{delta}", _popup_color, _popup_color, glow_opacity=0.22),
             })
         self._last_score = current_score
 
         for p in self._score_popups:
-            surf = self._popup_font.render(f"+{p['delta']}", True, (255, 220, 80))
-            surf.set_alpha(int(p["alpha"]))
-            self.screen.blit(surf, surf.get_rect(bottomright=(sw - margin_x, int(p["y"]))))
+            gs = p["glow_surf"].copy()
+            gs.set_alpha(int(p["alpha"]))
+            self.screen.blit(gs, gs.get_rect(bottomright=(sw - margin_x, int(p["y"]))))
             p["y"]     -= 0.9
             p["alpha"] -= 4.5
         self._score_popups = [p for p in self._score_popups if p["alpha"] > 0]
 
-        score_text = self._score_font.render(f"{current_score}", True, (255, 255, 255))
-        self.screen.blit(score_text, score_text.get_rect(bottomright=(sw - margin_x, sh - margin_y)))
+        if self._score_glow_val != current_score:
+            _score_color = (255, 255, 255)
+            self._score_glow_surf = _make_glow_surface(self._score_font, f"{current_score}", _score_color, _score_color, glow_opacity=0.22)
+            self._score_glow_val = current_score
+        self.screen.blit(self._score_glow_surf, self._score_glow_surf.get_rect(bottomright=(sw - margin_x, sh - margin_y)))
 
         _HOVER_SCALE = 1.12
-        for _img, _rect in (
-            (self._leave_img, self._leave_rect),
-            (self._level_settings_img, self._level_settings_rect),
+        _LERP_SPEED = 12.0  # higher = snappier
+        for _img, _rect, _attr in (
+            (self._leave_img, self._leave_rect, '_leave_scale'),
+            (self._level_settings_img, self._level_settings_rect, '_level_settings_scale'),
         ):
-            if _rect.collidepoint(mouse_pos):
-                _hw = int(_rect.width  * _HOVER_SCALE)
-                _hh = int(_rect.height * _HOVER_SCALE)
-                _hsurf = pygame.transform.smoothscale(_img, (_hw, _hh))
-                self.screen.blit(_hsurf, _hsurf.get_rect(center=_rect.center))
-            else:
-                self.screen.blit(_img, _rect)
+            _target = _HOVER_SCALE if _rect.collidepoint(mouse_pos) else 1.0
+            _cur = getattr(self, _attr)
+            _cur += (_target - _cur) * min(1.0, _LERP_SPEED * dt)
+            setattr(self, _attr, _cur)
+            _hw = int(_rect.width  * _cur)
+            _hh = int(_rect.height * _cur)
+            _hsurf = pygame.transform.smoothscale(_img, (_hw, _hh))
+            self.screen.blit(_hsurf, _hsurf.get_rect(center=_rect.center))
 
         if pause_requested:
             self._enter_pause()

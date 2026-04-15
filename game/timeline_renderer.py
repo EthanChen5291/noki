@@ -10,6 +10,8 @@ class TimelineRenderer:
 
     def __init__(self, game) -> None:
         self.game = game
+        self._timeline_glow_surf: pygame.Surface | None = None
+        self._timeline_glow_w: int = 0
 
     # ------------------------------------------------------------------
     # Marker helpers
@@ -118,13 +120,49 @@ class TimelineRenderer:
             timeline_color = (255, 255, 255)
             g._timeline_flash = 0.0
 
+        # --- timeline glow
+        line_w = timeline_end_x - timeline_start_x
+        if self._timeline_glow_surf is None or self._timeline_glow_w != line_w:
+            glow_pad = 100
+            glow_h = 6 + glow_pad * 2
+            base = pygame.Surface((line_w, glow_h), pygame.SRCALPHA)
+            pygame.draw.line(base, (255, 255, 255), (0, glow_h // 2), (line_w, glow_h // 2), 6)
+            blurred = base
+            for _ in range(3):
+                small = pygame.transform.smoothscale(blurred, (max(1, line_w // 5), max(1, glow_h // 5)))
+                blurred = pygame.transform.smoothscale(small, (line_w, glow_h))
+            self._timeline_glow_surf = blurred
+            self._timeline_glow_w = line_w
+
+        _glow = self._timeline_glow_surf.copy()
+        _glow.fill((*timeline_color, 255), special_flags=pygame.BLEND_RGBA_MULT)
+        _blit_y = timeline_y - self._timeline_glow_surf.get_height() // 2
+        g.screen.blit(_glow, (timeline_start_x, _blit_y))
+        g.screen.blit(_glow, (timeline_start_x, _blit_y))
+
         pygame.draw.line(
             g.screen, timeline_color,
             (timeline_start_x, timeline_y),
             (timeline_end_x, timeline_y), 6,
         )
 
-        _hm_rect = g.hitmarker_img.get_rect(center=(int(hit_marker_x), timeline_y))
+        # --- hitmarker shake (miss) + scale (correct hit)
+        import math as _math
+        _shake_x_off = 0
+        if g._hm_shake_t > 0:
+            _shake_x_off = int(_math.sin(g._hm_shake_t * 42) * 5 * g._hm_shake_t)
+
+        _hm_cx = int(hit_marker_x) + _shake_x_off
+        _hm_cy = timeline_y
+
+        def _scaled_blit(surf):
+            s = g._hm_scale
+            if abs(s - 1.0) > 0.002:
+                w, h = surf.get_size()
+                surf = pygame.transform.smoothscale(surf, (int(w * s), int(h * s)))
+            g.screen.blit(surf, surf.get_rect(center=(_hm_cx, _hm_cy)))
+
+        _hm_rect = g.hitmarker_img.get_rect(center=(_hm_cx, _hm_cy))
 
         # --- speed/slow hitmarker (one-shot); hides static hitmarker + glow while playing
         _hm_state = g._hitmarker_anim_state
@@ -133,16 +171,16 @@ class TimelineRenderer:
         if _hm_state == 'speed_up':
             _hm_frames = g._speed_hitmarker_frames
             if _hm_frames and _hm_fi < len(_hm_frames):
-                g.screen.blit(_hm_frames[_hm_fi], _hm_rect)
+                _scaled_blit(_hm_frames[_hm_fi])
                 _hm_anim_playing = True
         elif _hm_state == 'slow_down':
             _hm_frames = g._slow_hitmarker_frames
             if _hm_frames and _hm_fi < len(_hm_frames):
-                g.screen.blit(_hm_frames[_hm_fi], _hm_rect)
+                _scaled_blit(_hm_frames[_hm_fi])
                 _hm_anim_playing = True
 
         if not _hm_anim_playing:
-            g.screen.blit(g.hitmarker_img, _hm_rect)
+            _scaled_blit(g.hitmarker_img)
 
         # --- hitmarker glow overlays (press = white flash, hold = persistent golden)
         if not _hm_anim_playing:
@@ -150,11 +188,11 @@ class TimelineRenderer:
             if _press_a > 0:
                 _glow = g.glowed_hitmarker_img.copy()
                 _glow.fill((255, 255, 255, _press_a), special_flags=pygame.BLEND_RGBA_MULT)
-                g.screen.blit(_glow, _hm_rect)
+                _scaled_blit(_glow)
             if g.rhythm._active_hold is not None:
                 _glow = g.glowed_hitmarker_golden_img.copy()
                 _glow.fill((255, 255, 255, 178), special_flags=pygame.BLEND_RGBA_MULT)
-                g.screen.blit(_glow, _hm_rect)
+                _scaled_blit(_glow)
 
         # --- beat grid lines
         beat_times = g.song.beat_times
@@ -300,6 +338,18 @@ class TimelineRenderer:
             fill_surf.blit(mask_surf, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
 
             g.screen.blit(fill_surf, (bar_x, bar_y))
+
+            # Glow behind filled portion
+            glow_expand = 8
+            glow_surf = pygame.Surface((filled_width + glow_expand * 2, bar_height + glow_expand * 2), pygame.SRCALPHA)
+            for i in range(glow_expand, 0, -1):
+                alpha = int(60 * (i / glow_expand))
+                pygame.draw.rect(
+                    glow_surf, (100, 200, 255, alpha),
+                    (glow_expand - i, glow_expand - i, filled_width + i * 2, bar_height + i * 2),
+                    border_radius=border_r + i,
+                )
+            g.screen.blit(glow_surf, (bar_x - glow_expand, bar_y - glow_expand), special_flags=pygame.BLEND_RGBA_ADD)
 
         # White border
         pygame.draw.rect(g.screen, (255, 255, 255), (bar_x, bar_y, bar_width, bar_height), width=3, border_radius=border_r)
