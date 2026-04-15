@@ -17,7 +17,7 @@ import os
 import time
 import pygame
 
-_AUDIO = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "audios")
+_AUDIO = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "audios", "built-in")
 
 
 class MusicManager:

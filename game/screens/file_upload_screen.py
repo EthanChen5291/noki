@@ -13,10 +13,11 @@ update() is split into:
 """
 from __future__ import annotations
 import os
+import subprocess
 import threading
 import pygame
 
-from ..menu_utils import _FONT, pick_audio_file, _audio_duration, _fetch_lyrics_words, DEFAULT_WORD_BANK
+from ..menu_utils import _FONT, start_pick_audio_file, _audio_duration, _fetch_lyrics_words, DEFAULT_WORD_BANK
 from ..ui_components import _EXIT_IMG, Button, TextInput, ImageButton
 from ._constants import SPINNER_FRAMES, SPINNER_INTERVAL
 
@@ -62,6 +63,9 @@ class FileUploadScreen:
             input_font, placeholder="Artist  (optional)",
         )
 
+        # File picker subprocess state
+        self._pick_proc: subprocess.Popen | None = None  # type: ignore[type-arg]
+
         # Fetch state
         self._fetching:    bool                     = False
         self._fetch_done:  bool                     = False
@@ -81,6 +85,32 @@ class FileUploadScreen:
 
     def update(self, dt: float, mouse_pos, mouse_clicked, current_time, events):
         """Returns (action, file_path, word_bank).  action is 'back', 'upload', or None."""
+        # While the file picker is open, block all input
+        if self._pick_proc is not None:
+            # Still poll so we catch when the user picks/cancels
+            if self._pick_proc.poll() is not None:
+                path = self._pick_proc.stdout.read().strip() if self._pick_proc.stdout else ""
+                self._pick_proc = None
+                if path:
+                    ext = os.path.splitext(path)[1].lower()
+                    if ext not in (".mp3", ".wav"):
+                        self.show_error("Please select a .mp3 or .wav file.")
+                        self.selected_path = None
+                    else:
+                        dur = _audio_duration(path)
+                        if dur is not None and dur < 30:
+                            self.show_error(f"Too short ({dur:.0f}s). Need at least 30 seconds.")
+                            self.selected_path = None
+                        else:
+                            self.selected_path = path
+                            self.status_msg    = f'"{os.path.basename(path)}" selected.'
+                            self.status_color  = (120, 220, 140)
+                else:
+                    if not self.selected_path:
+                        self.status_msg   = "Choose a .mp3 or .wav file."
+                        self.status_color = (160, 160, 160)
+            return None, None, None
+
         self.input_title.handle_events(events)
         self.input_artist.handle_events(events)
 
@@ -147,22 +177,11 @@ class FileUploadScreen:
 
     def _handle_input(self, mouse_pos, mouse_clicked) -> tuple:
         self.browse_button.check_hover(mouse_pos)
+
         if self.browse_button.check_click(mouse_pos, mouse_clicked):
-            path = pick_audio_file()
-            if path:
-                ext = os.path.splitext(path)[1].lower()
-                if ext not in (".mp3", ".wav"):
-                    self.show_error("Please select a .mp3 or .wav file.")
-                    self.selected_path = None
-                else:
-                    dur = _audio_duration(path)
-                    if dur is not None and dur < 30:
-                        self.show_error(f"Too short ({dur:.0f}s). Need at least 30 seconds.")
-                        self.selected_path = None
-                    else:
-                        self.selected_path = path
-                        self.status_msg    = f'"{os.path.basename(path)}" selected.'
-                        self.status_color  = (120, 220, 140)
+            self._pick_proc    = start_pick_audio_file()
+            self.status_msg    = "Selecting file…"
+            self.status_color  = (180, 180, 220)
 
         if self.selected_path:
             self.add_button.check_hover(mouse_pos)

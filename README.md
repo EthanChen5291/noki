@@ -108,35 +108,42 @@ python main.py
 
 ```
 key-dash/
-├── main.py                     # Entry point — menu loop, level loading
+├── main.py                         # Entry point — menu loop, level loading
 ├── game/
-│   ├── engine.py               # Main Game class (run loop, update, rendering)
-│   ├── beatmap_generator.py    # Public API for beatmap generation
-│   ├── slot_builder.py         # Rhythm slot building & word-to-slot assignment
-│   ├── rhythm.py               # RhythmManager — timing windows, scoring, combo
-│   ├── mechanics.py            # Scroll speed, bounce mode, dual-side mode
-│   ├── effects.py              # Particles, shockwaves, screen shake
-│   ├── note_renderer.py        # Note sprite & hold-bar rendering
-│   ├── word_renderer.py        # Word carousel, repeat coloring, underline
-│   ├── timeline_renderer.py    # Timeline background + beat/measure lines
-│   ├── edge_glitch.py          # Edge glitch visual effect
-│   ├── models.py               # Data classes (CharEvent, Word, Song, …)
-│   ├── constants.py            # Difficulty profiles & all tunable parameters
-│   ├── input.py                # Keyboard input handler
-│   ├── menu.py                 # Menu state machine, pause screen
-│   ├── music.py                # Background music manager
-│   ├── ui_components.py        # Buttons, petal animations, text input, widgets
-│   └── screens/                # Title, level select, level menu, upload screens
+│   ├── engine.py                   # Main Game class (run loop, update, rendering)
+│   ├── rhythm.py                   # RhythmManager — timing windows, scoring, combo
+│   ├── mechanics.py                # Scroll speed, bounce mode, dual-side mode
+│   ├── input.py                    # Keyboard input handler
+│   ├── models.py                   # Data classes (CharEvent, Word, Song, …)
+│   ├── constants.py                # Difficulty profiles & all tunable parameters
+│   ├── menu.py                     # Menu state machine, pause screen
+│   ├── menu_utils.py               # File picker, lyrics fetching, JSON persistence
+│   ├── music.py                    # Background music manager
+│   ├── ui_components.py            # Buttons, petal animations, text input, widgets
+│   ├── beatmap_generator.py        # Public API for beatmap generation
+│   ├── slot_builder.py             # Rhythm slot building & word-to-slot assignment
+│   ├── rendering/                  # Visual renderers & effects
+│   │   ├── effects.py              # Particles, shockwaves, screen shake (mixin)
+│   │   ├── note_renderer.py        # Note sprite & hold-bar rendering
+│   │   ├── word_renderer.py        # Word carousel, repeat coloring, underline
+│   │   ├── timeline_renderer.py    # Timeline bar, beat grid, progress bar
+│   │   └── edge_glitch.py          # Edge curvature / dissolve post-process effect
+│   └── screens/                    # Full-screen UI views
+│       ├── title_screen.py         # Animated title screen
+│       ├── level_select.py         # Song library browser
+│       ├── level_menu.py           # Difficulty / BPM / word-bank picker
+│       ├── file_upload_screen.py   # Custom song upload flow
+│       └── settings_panel.py       # In-game settings overlay
 ├── analysis/
-│   └── audio_analysis.py       # BPM detection, intensity, drops, dual-sections
+│   └── audio_analysis.py           # BPM detection, intensity, drops, dual-sections
 ├── assets/
-│   ├── audios/                 # Canon song audio files (MP3/WAV)
-│   ├── images/                 # Sprites, hit-effect frames, animated notes, font
-│   ├── scores.json             # Persistent high scores per song + difficulty
-│   ├── custom_songs.json       # User-uploaded song list
-│   ├── custom_bpms.json        # User BPM overrides
-│   └── song_words.json         # Cached word banks per song
-└── tests/                      # Test suite
+│   ├── audios/                     # Canon song audio files (MP3/WAV)
+│   ├── images/                     # Sprites, hit-effect frames, animated notes, font
+│   ├── scores.json                 # Persistent high scores per song + difficulty
+│   ├── custom_songs.json           # User-uploaded song list
+│   ├── custom_bpms.json            # User BPM overrides
+│   └── song_words.json             # Cached word banks per song
+└── tests/                          # Test suite
 ```
 
 ## 🎯 Core Concepts

@@ -29,12 +29,12 @@ from . import models as M
 from .menu import PauseScreen
 from .screens import SettingsPanel
 from .menu_utils import _FONT
-from .effects import EffectsMixin
+from .rendering.effects import EffectsMixin
 from .mechanics import MechanicsMixin, BounceEvent
-from .word_renderer import WordRenderer, build_letter_glow_cache, _make_glow_surface
-from .timeline_renderer import TimelineRenderer
-from .note_renderer import NoteRenderer
-from .edge_glitch import EdgeGlitchRenderer
+from .rendering.word_renderer import WordRenderer, build_letter_glow_cache, _make_glow_surface
+from .rendering.timeline_renderer import TimelineRenderer
+from .rendering.note_renderer import NoteRenderer
+from .rendering.edge_glitch import EdgeGlitchRenderer
 
 pygame.init()
 

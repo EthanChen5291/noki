@@ -4,7 +4,7 @@ Mixed into Game via multiple inheritance; all methods use `self` freely.
 """
 import pygame
 from typing import Optional, Any
-from . import models as M
+from .. import models as M
 
 
 class EffectsMixin:
@@ -13,7 +13,7 @@ class EffectsMixin:
     song: M.Song
     drop_note_indices: dict[int, int]
     drops_triggered: set[int]
-    
+
     # ── Animation / Asset expected attributes ──
     _hurt_frames: list[pygame.Surface]
     _hurt_playing: bool

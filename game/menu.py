@@ -8,10 +8,10 @@ import pygame
 import time
 import os
 import shutil
+import threading
 
 from .menu_utils import (
     _FONT,
-    pick_audio_file,
     DEFAULT_WORD_BANK,
     _load_scores,
     _load_custom_songs,
@@ -111,6 +111,26 @@ class MenuManager:
         self.song_word_banks: dict[str, list[str]] = _load_word_banks()
 
         self._pending_difficulty: str | None = None
+
+        # async file-copy state (Fix 3)
+        self._uploading: bool = False
+        self._upload_thread: threading.Thread | None = None
+        self._upload_result: list = []  # filled with (ok, msg) by worker
+
+    def reset_for_return(self, start_state: str) -> None:
+        """Lightweight reset after returning from a level — avoids recreating fonts/videos."""
+        self.state = start_state
+        self._scores = _load_scores()
+        self._custom_bpms = _load_custom_bpms()
+        self.level_select = LevelSelect(
+            self.screen, self.song_names, self._scores,
+            canon_names=self._canon_names,
+        )
+        self.title_screen.reset()
+        self._level_menu = None
+        self._uploading = False
+        self._upload_thread = None
+        self._upload_result = []
 
     def _word_bank_for(self, idx: int) -> list[str]:
         name = self.song_names[idx]
@@ -255,14 +275,7 @@ class MenuManager:
                 if action == "back":
                     self._start_transition("title", self.level_select.back_button.rect.center)
                 elif action == "upload":
-                    fpath = pick_audio_file()
-                    if fpath:
-                        ok, msg = self._handle_upload(fpath, None)
-                        if ok:
-                            self.level_select = LevelSelect(self.screen, self.song_names,
-                                                            self._scores, self._canon_names)
-                            self.level_select.switch_tab(1)
-                            self.level_select.begin_rename(0)
+                    self.state = "upload"
                 elif action == "cancel_upload":
                     cancel_idx = idx
                     if 0 <= cancel_idx < len(self.song_names):
@@ -297,20 +310,40 @@ class MenuManager:
                     )
 
             elif self.state == "upload":
-                action, fpath, words = self.file_upload_screen.update(
-                    dt, mouse_pos, mouse_clicked, current_time, events
-                )
-                self.file_upload_screen.draw(current_time)
-                if action == "back":
-                    self.state = "level_select"
-                elif action == "upload":
-                    ok, msg = self._handle_upload(fpath, words)
-                    if ok:
-                        self.level_select = LevelSelect(self.screen, self.song_names,
-                                                        self._scores, self._canon_names)
-                        self.state = "level_select"
+                # Poll background copy thread
+                if self._uploading:
+                    if self._upload_thread and not self._upload_thread.is_alive():
+                        self._uploading = False
+                        if self._upload_result:
+                            _ok, _msg = self._upload_result[0]
+                            if _ok:
+                                self.level_select = LevelSelect(self.screen, self.song_names,
+                                                                self._scores, self._canon_names)
+                                self.state = "level_select"
+                            else:
+                                self.file_upload_screen.show_error(_msg)
                     else:
-                        self.file_upload_screen.show_error(msg)
+                        # Draw "Copying…" overlay while thread runs
+                        self.file_upload_screen.draw(current_time)
+                        sw2, sh2 = self.screen.get_size()
+                        _copy_font = pygame.font.Font(_FONT, 40)
+                        _copy_surf = _copy_font.render("Copying file…", True, (180, 180, 220))
+                        self.screen.blit(_copy_surf, _copy_surf.get_rect(center=(sw2 // 2, sh2 // 2 + 80)))
+                else:
+                    action, fpath, words = self.file_upload_screen.update(
+                        dt, mouse_pos, mouse_clicked, current_time, events
+                    )
+                    self.file_upload_screen.draw(current_time)
+                    if action == "back":
+                        self.state = "level_select"
+                    elif action == "upload":
+                        ok, msg = self._handle_upload(fpath, words)
+                        if ok is True:
+                            self.level_select = LevelSelect(self.screen, self.song_names,
+                                                            self._scores, self._canon_names)
+                            self.state = "level_select"
+                        elif ok is False:
+                            self.file_upload_screen.show_error(msg or "Upload failed.")
 
             elif self.state == "transition":
                 self._draw_transition(current_time)
@@ -332,22 +365,49 @@ class MenuManager:
             pygame.display.flip()
 
     def _handle_upload(self, file_path, word_bank: list[str] | None):
+        """Start an upload. Returns (True, filename) if instant, (None, None) if async, (False, msg) on error."""
         try:
-            dest_dir  = os.path.join("assets", "audios")
+            dest_dir  = os.path.join("assets", "audios", "custom")
             filename  = os.path.basename(file_path)
             dest_path = os.path.join(dest_dir, filename)
-            if not os.path.exists(dest_path):
-                shutil.copy2(file_path, dest_path)
+
+            # Update in-memory state immediately so the song appears right away
             if filename in self.song_names:
                 self.song_names.remove(filename)
             self.song_names.insert(0, filename)
             self.song_word_banks[filename] = word_bank if word_bank is not None else DEFAULT_WORD_BANK[:]
-            _save_word_banks(self.song_word_banks)
-            _custom = _load_custom_songs()
-            if filename not in _custom:
-                _custom.append(filename)
-                _save_custom_songs(_custom)
-            return True, filename
+
+            if os.path.exists(dest_path):
+                # File already present — just persist JSON synchronously (fast)
+                _save_word_banks(self.song_word_banks)
+                _custom = _load_custom_songs()
+                if filename not in _custom:
+                    _custom.append(filename)
+                    _save_custom_songs(_custom)
+                return True, filename
+
+            # File needs copying — do it in a background thread
+            result_box: list = []
+            word_banks_snapshot = dict(self.song_word_banks)
+
+            def _copy_worker():
+                try:
+                    shutil.copy2(file_path, dest_path)
+                    _save_word_banks(word_banks_snapshot)
+                    _custom = _load_custom_songs()
+                    if filename not in _custom:
+                        _custom.append(filename)
+                        _save_custom_songs(_custom)
+                    result_box.append((True, filename))
+                except Exception as exc:
+                    result_box.append((False, f"Upload failed: {exc}"))
+
+            self._uploading = True
+            self._upload_result = result_box
+            self._upload_thread = threading.Thread(target=_copy_worker, daemon=True)
+            self._upload_thread.start()
+            return None, None  # async — caller must poll
+
         except Exception as e:
             return False, f"Upload failed: {e}"
 

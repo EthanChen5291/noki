@@ -103,7 +103,8 @@ from game.music import MusicManager
 # cat selection mode in main title screen with button under the cat
 # incorporate the two cats into beginning animation
 
-SONG_PATH = "assets/audios/"
+CANON_PATH = "assets/audios/canon/"
+CUSTOM_PATH = "assets/audios/custom/"
 SONG_NAMES = [
     "Scorpion.mp3",
     "Playful Massacre.mp3", 
@@ -134,9 +135,8 @@ def main():
 
     music = MusicManager()
 
-    start_state = "title"
+    menu = MenuManager(screen, clock, SONG_NAMES, start_state="title", music=music)
     while True:
-        menu = MenuManager(screen, clock, SONG_NAMES, start_state=start_state, music=music)
         result = menu.run()
 
         if result is None:
@@ -144,9 +144,12 @@ def main():
 
         selected, difficulty, word_bank, bpm = result
 
+        song_name = SONG_NAMES[selected]
+        _canon_path = CANON_PATH + song_name
+        song_path = _canon_path if os.path.exists(_canon_path) else CUSTOM_PATH + song_name
         level = Level(
             word_bank=word_bank,
-            song_path=SONG_PATH + SONG_NAMES[selected],
+            song_path=song_path,
             difficulty=difficulty,
             bpm=bpm,
         )
@@ -222,7 +225,6 @@ def main():
         game = Game(level=level, screen=screen, clock=clock, music=music)
         game.run()
         music.resume_from_game()
-        start_state = "level_select"
 
         # Persist top score for this song + difficulty
         song_key = SONG_NAMES[selected]
@@ -231,6 +233,8 @@ def main():
         if game.score > prev:
             scores.setdefault(song_key, {})[difficulty] = game.score
             _save_scores(scores)
+
+        menu.reset_for_return("level_select")
 
     pygame.quit()
 

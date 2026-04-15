@@ -4,8 +4,8 @@ Instantiated and owned by Game; accesses game state via self.game.
 """
 import pygame
 import math
-from . import constants as C
-from .menu_utils import _FONT
+from .. import constants as C
+from ..menu_utils import _FONT
 
 # Colors cycling for repeat word dots (orange first, then impulse particle colors)
 _REPEAT_COLORS = [

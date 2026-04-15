@@ -33,30 +33,57 @@ def _audio_duration(path: str) -> float | None:
 
 # ─── File picker (subprocess to avoid tkinter/pygame crash) ──────────────────
 
+_PICK_SCRIPT = (
+    "import sys, subprocess\n"
+    "if sys.platform == 'darwin':\n"
+    "    r = subprocess.run(\n"
+    "        ['osascript', '-e',\n"
+    "         'try\\n'\n"
+    "         'set f to (choose file of type {\"mp3\", \"wav\"} with prompt \"Select an Audio File\")\\n'\n"
+    "         'return POSIX path of f\\n'\n"
+    "         'on error\\n'\n"
+    "         'return \"\"\\n'\n"
+    "         'end try'],\n"
+    "        capture_output=True, text=True)\n"
+    "    path = r.stdout.strip()\n"
+    "    if path:\n"
+    "        print(path)\n"
+    "else:\n"
+    "    import tkinter as tk\n"
+    "    from tkinter import filedialog\n"
+    "    root = tk.Tk()\n"
+    "    root.withdraw()\n"
+    "    root.attributes('-topmost', True)\n"
+    "    root.update()\n"
+    "    path = filedialog.askopenfilename(\n"
+    "        title='Select an Audio File',\n"
+    "        filetypes=[('Audio Files','*.mp3 *.wav'),"
+    "                   ('MP3 Files','*.mp3'),('WAV Files','*.wav')])\n"
+    "    root.destroy()\n"
+    "    if path:\n"
+    "        print(path)\n"
+)
+
+
 def pick_audio_file() -> str | None:
-    script = (
-        "import tkinter as tk\n"
-        "from tkinter import filedialog\n"
-        "root = tk.Tk()\n"
-        "root.withdraw()\n"
-        "root.attributes('-topmost', True)\n"
-        "path = filedialog.askopenfilename(\n"
-        "    title='Select an Audio File',\n"
-        "    filetypes=[('Audio Files','*.mp3 *.wav'),"
-        "               ('MP3 Files','*.mp3'),('WAV Files','*.wav')])\n"
-        "root.destroy()\n"
-        "if path:\n"
-        "    print(path)\n"
-    )
+    """Blocking file picker (kept for legacy callers)."""
     try:
         result = subprocess.run(
-            [sys.executable, "-c", script],
+            [sys.executable, "-c", _PICK_SCRIPT],
             capture_output=True, text=True, timeout=120,
         )
         path = result.stdout.strip()
         return path if path else None
     except Exception:
         return None
+
+
+def start_pick_audio_file() -> subprocess.Popen:
+    """Non-blocking file picker. Returns a Popen handle; poll with .poll() != None, then read .stdout.read().strip()."""
+    return subprocess.Popen(
+        [sys.executable, "-c", _PICK_SCRIPT],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+    )
 
 
 # ─── Lyrics / word bank ──────────────────────────────────────────────────────
