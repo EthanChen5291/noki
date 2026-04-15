@@ -1,6 +1,6 @@
 # Noki
 
-<img src="assets/images/noki_preview.png" alt="Noki Preview" width="600">
+<img src="assets/images/noki_preview.png" alt="Noki Preview" width="800">
 
 > A rhythm-based typing system that trains touch-typing by syncing input to visual beats.
 > Music becomes interactive typing challenges — making practice engaging and habit-forming.
