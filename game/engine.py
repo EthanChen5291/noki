@@ -207,11 +207,14 @@ class Game(EffectsMixin, MechanicsMixin):
         self._speed_measureline_frames: list[pygame.Surface] = _load_seq_frames('measureline_speed', (_ml_w, _ml_h))
         self._slow_measureline_frames:  list[pygame.Surface] = _load_seq_frames('measureline_slow',  (_ml_w, _ml_h))
 
-        # Current speed animation state + one-shot frame counters
-        self._speed_anim_state: str  = 'normal'
-        self._prev_speed_anim_state: str = 'normal'
+        # Independent one-shot animation states for hitmarker and measurelines
+        self._hitmarker_anim_state:   str   = 'normal'
+        self._measureline_anim_state: str   = 'normal'
         self._hitmarker_anim_frame:   float = 0.0
         self._measureline_anim_frame: float = 0.0
+        # Previous-frame values for transition detection
+        self._prev_dual_active:      bool = False
+        self._prev_bounce_reversed:  bool = False
 
         # Glow flash state: elapsed seconds since trigger, -1 = inactive
         self._glow_press_t: float = -1.0
@@ -652,6 +655,10 @@ class Game(EffectsMixin, MechanicsMixin):
 
         current_time = time.perf_counter() - self.rhythm.start_time
 
+        # Snapshot states before updates for transition detection
+        _was_dual_active     = self.dual_side_active
+        _was_bounce_reversed = self.bounce_reversed
+
         self.update_dynamic_scroll_speed(current_time)
         self.update_bounce_state(current_time)
         self.update_cat_position(current_time, dt)
@@ -666,7 +673,7 @@ class Game(EffectsMixin, MechanicsMixin):
         for _seq in self.fast_note_sprites.values():
             _seq.advance(dt)
 
-        # Update speed/slow anim state and advance those sequences
+        # --- energy-shift base state (drives both hitmarker + measureline)
         _song_t = current_time - self.rhythm.lead_in
         _active_shift = None
         for _shift in self.energy_shifts:
@@ -674,27 +681,41 @@ class Game(EffectsMixin, MechanicsMixin):
                 _active_shift = _shift
                 break
         if _active_shift is None or 0.9 < _active_shift.scroll_modifier < 1.1:
-            self._speed_anim_state = 'normal'
+            _energy_state = 'normal'
         elif _active_shift.scroll_modifier >= 1.1:
-            self._speed_anim_state = 'speed_up'
+            _energy_state = 'speed_up'
         else:
-            self._speed_anim_state = 'slow_down'
+            _energy_state = 'slow_down'
 
-        # Reset one-shot frame counters when state changes
-        if self._speed_anim_state != self._prev_speed_anim_state:
-            self._hitmarker_anim_frame = 0.0
-            self._measureline_anim_frame = 0.0
-            self._prev_speed_anim_state = self._speed_anim_state
+        def _set_hm(state):
+            if state != self._hitmarker_anim_state:
+                self._hitmarker_anim_state = state
+                self._hitmarker_anim_frame = 0.0
 
-        # Advance frame counters (stop at end — no looping)
-        if self._speed_anim_state == 'speed_up':
-            _anim_fps = 14.0
-        elif self._speed_anim_state == 'slow_down':
-            _anim_fps = 12.0
-        else:
-            _anim_fps = 0.0
-        self._hitmarker_anim_frame += _anim_fps * dt
-        self._measureline_anim_frame += _anim_fps * dt
+        def _set_ml(state):
+            if state != self._measureline_anim_state:
+                self._measureline_anim_state = state
+                self._measureline_anim_frame = 0.0
+
+        _set_hm(_energy_state)
+        _set_ml(_energy_state)
+
+        # --- dual-mode entry: speed_up on hitmarker only
+        if self.dual_side_active and not _was_dual_active:
+            _set_hm('speed_up')
+
+        # --- bounce direction change: affect both hitmarker + measureline
+        if self.bounce_active:
+            if self.bounce_reversed and not _was_bounce_reversed:
+                _set_hm('slow_down')
+                _set_ml('slow_down')
+            elif not self.bounce_reversed and _was_bounce_reversed:
+                _set_hm('speed_up')
+                _set_ml('speed_up')
+
+        # --- advance frame counters (stop at end — no looping)
+        self._hitmarker_anim_frame   += (14.0 if self._hitmarker_anim_state   == 'speed_up' else 12.0 if self._hitmarker_anim_state   == 'slow_down' else 0.0) * dt
+        self._measureline_anim_frame += (14.0 if self._measureline_anim_state == 'speed_up' else 12.0 if self._measureline_anim_state == 'slow_down' else 0.0) * dt
 
         self.update_hitmarker_glow(dt)
 
@@ -718,8 +739,7 @@ class Game(EffectsMixin, MechanicsMixin):
                 mouse_clicked = True
 
         if mouse_clicked and self._leave_rect.collidepoint(mouse_pos):
-            self._exit_to_menu = True
-            self.running = False
+            self._enter_pause()
             return
         if mouse_clicked and self._level_settings_rect.collidepoint(mouse_pos):
             self._enter_pause()
@@ -905,8 +925,18 @@ class Game(EffectsMixin, MechanicsMixin):
         score_text = self._score_font.render(f"{current_score}", True, (255, 255, 255))
         self.screen.blit(score_text, score_text.get_rect(bottomright=(sw - margin_x, sh - margin_y)))
 
-        self.screen.blit(self._leave_img, self._leave_rect)
-        self.screen.blit(self._level_settings_img, self._level_settings_rect)
+        _HOVER_SCALE = 1.12
+        for _img, _rect in (
+            (self._leave_img, self._leave_rect),
+            (self._level_settings_img, self._level_settings_rect),
+        ):
+            if _rect.collidepoint(mouse_pos):
+                _hw = int(_rect.width  * _HOVER_SCALE)
+                _hh = int(_rect.height * _HOVER_SCALE)
+                _hsurf = pygame.transform.smoothscale(_img, (_hw, _hh))
+                self.screen.blit(_hsurf, _hsurf.get_rect(center=_rect.center))
+            else:
+                self.screen.blit(_img, _rect)
 
         if pause_requested:
             self._enter_pause()
