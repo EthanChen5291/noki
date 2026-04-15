@@ -194,6 +194,15 @@ class Game(EffectsMixin, MechanicsMixin):
         # Glow flash state: elapsed seconds since trigger, -1 = inactive
         self._glow_press_t: float = -1.0
 
+        # Letter glow overlays — one pre-colored PNG per note color + white fallback
+        self.letter_glow_imgs: dict[str, pygame.Surface] = {
+            'blue':   pygame.image.load(os.path.join(assets_path, 'blueletterglow.png')).convert_alpha(),
+            'green':  pygame.image.load(os.path.join(assets_path, 'greenletterglow.png')).convert_alpha(),
+            'orange': pygame.image.load(os.path.join(assets_path, 'orangeletterglow.png')).convert_alpha(),
+            'pink':   pygame.image.load(os.path.join(assets_path, 'pinkletterglow.png')).convert_alpha(),
+            'white':  pygame.image.load(os.path.join(assets_path, 'letterglow.png')).convert_alpha(),
+        }
+
         # Petal spinner images
         _psz = 40
         _p1  = pygame.transform.smoothscale(
@@ -776,14 +785,10 @@ class Game(EffectsMixin, MechanicsMixin):
                             self.show_message(f"HOLD Good ×{combo}", 1.0)
                         else:
                             self.show_message(f"HOLD OK ×{combo}", 1.0)
-                        if self._hitsound:
-                            self._hitsound.play()
                         self.trigger_hit_ripple(int(self.hit_marker_current_x), 380)
                         self.score = self.rhythm.get_score()
                     else:
                         self.show_message("Hold broken!", 0.8)
-                        if self._hitsound:
-                            self._hitsound.play()
                         self.trigger_hurt()
                         self._timeline_flash = 1.0
                         self._timeline_shake_offset = 6.0

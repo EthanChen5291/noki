@@ -9,6 +9,15 @@ from game.menu_utils import _load_scores, _save_scores
 from game.music import MusicManager
 
 
+# add perfect/great/ok text that lerps in and out as well as combo text
+# if combo, make it glow gold 
+
+# make the pause button the old exit button 
+
+# add title settings and level settings button
+
+# add dim glow (airbrush) to everything (how?)
+
 # for some reason, everything takes longer to load now (end of level delay, opening up program delay, playing level delay) -> why?
 
 # shouldnt be able to press on buttons through the canon/custom menu

@@ -23,6 +23,9 @@ _NOTE_COLOR_RGB: dict[str, tuple] = {
     'orange': (255, 193, 142),
 }
 
+# Reverse lookup: RGB tuple → color name (for glow image selection)
+_RGB_TO_COLOR_NAME: dict[tuple, str] = {v: k for k, v in _NOTE_COLOR_RGB.items()}
+
 
 class WordRenderer:
 
@@ -279,11 +282,23 @@ class WordRenderer:
             font_size = int(48 * final_scale)
             char_font = pygame.font.Font(_FONT, font_size)
 
-            char_surface = char_font.render(char, True, current_color)
-            char_surface.set_alpha(final_alpha)
-
             char_x = current_x + i * (current_char_spacing * final_scale)
             char_y = center_y
+
+            # Draw letter glow behind character (center word only)
+            if position == 'center' and current_color:
+                color_name = _RGB_TO_COLOR_NAME.get(current_color, 'white')
+                glow_surf = g.letter_glow_imgs.get(color_name)
+                if glow_surf:
+                    glow_size = int(110 * final_scale)
+                    glow_scaled = pygame.transform.smoothscale(glow_surf, (glow_size, glow_size))
+                    glow_scaled.set_alpha(final_alpha)
+                    gx = int(char_x + char_font.size(char)[0] / 2 - glow_size / 2)
+                    gy = int(char_y + font_size / 2 - glow_size / 2)
+                    g.screen.blit(glow_scaled, (gx, gy))
+
+            char_surface = char_font.render(char, True, current_color)
+            char_surface.set_alpha(final_alpha)
 
             g.screen.blit(char_surface, (int(char_x), int(char_y)))
 
