@@ -72,6 +72,7 @@ class Shockwave:
     alpha: int  # 0 - 255 transparency
     thickness: int
     speed: float  # pixels per second expansion rate
+    color: tuple = (180, 180, 180)  # RGB color for the ring
 
     def update(self, dt: float) -> bool:
         """Update shockwave, returns False if should be removed"""
@@ -118,6 +119,8 @@ class CharEvent:
     hit: bool = False
     from_left: bool = False  # True = note comes from left side (dual-side mode)
     hold_duration: float = 0.0  # > 0 = hold note; player must hold for this many seconds
+    repeat_group_id: int = 0    # 0 = not part of a repeat group; shared ID across all iterations
+    repeat_iter: int = 0        # 1-based iteration index within the group (0 = not a repeat)
 
 # --- engine 
 

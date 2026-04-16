@@ -10,11 +10,23 @@ from game.menu_utils import _load_scores, _save_scores
 from game.music import MusicManager
 
 
-def _show_loading_screen(screen, clock, duration=0.55):
+def _show_loading_screen(screen, clock, duration=0.9):
     """Brief petal-spinner transition shown when returning to the menu after a level."""
+    import random as _random
     from game.ui_components import Petal
     sw, sh = screen.get_size()
-    petals = [Petal(sw, sh, randomize_y=True) for _ in range(45)]
+    petals = [Petal(sw, sh, randomize_y=True) for _ in range(55)]
+    # Override petal colors/alpha so they're clearly visible against the black background
+    _bright_colors = [
+        (255, 255, 255),
+        (200, 220, 255),
+        (255, 200, 240),
+        (180, 240, 255),
+        (255, 230, 200),
+    ]
+    for p in petals:
+        p.alpha = _random.randint(90, 190)
+        p.color = _random.choice(_bright_colors)
     start = _time.perf_counter()
     while True:
         elapsed = _time.perf_counter() - start
@@ -25,24 +37,33 @@ def _show_loading_screen(screen, clock, duration=0.55):
         for p in petals:
             p.update()
             p.draw(screen)
-        # Fade in for first 0.15s, fade out for last 0.15s
-        if elapsed < 0.15:
-            alpha = int(255 * (elapsed / 0.15))
-        elif elapsed > duration - 0.15:
-            alpha = int(255 * ((duration - elapsed) / 0.15))
-        else:
-            alpha = 255
-        overlay = pygame.Surface((sw, sh), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 255 - alpha))
-        screen.blit(overlay, (0, 0))
+        # Fade out only for last 0.15s (no fade-in so petals are visible immediately)
+        if elapsed > duration - 0.15:
+            fade_alpha = int(255 * (1.0 - (duration - elapsed) / 0.15))
+            overlay = pygame.Surface((sw, sh), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, fade_alpha))
+            screen.blit(overlay, (0, 0))
         pygame.display.flip()
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 return
+            
+# TMW---
 
-# add loading screen after leaving level
+# make the speed_hitmarker and slow_hitmarker animations (when played) very slightly taller and very slightly skinnier
 
-# add loading screen after leaving level
+# plan for repeat words 
+
+# remove the hitsound whenever hold note finishes and the note is released. only play hitsound when initial press on hold note
+
+# decrease drag on mouse but make the tail a bit sharper
+
+# when leaving level, i just see a flash of the background (the bg petals) before the screen turns black to load for a few seconds. 
+# I want the actual loading screen (the two petals petal1 petal2) rotating for however long is needed to load the main menu
+
+# decrease glow of progress bar by 80% (nothing's changeed with previous alpha changes)
+
+# -------
 
 # make the hitmarker lerp a bit bigger upon note press correctly
 
@@ -50,39 +71,15 @@ def _show_loading_screen(screen, clock, duration=0.55):
 
 # REPEAT WORDS
 
-# ensure that bounce sections cannot exceed the closest musically snapped (bpm) number of sections (multiple of 4 measures) closest to 20 seconds. moreover 
-# after a bounce section, a bounce section cannot happen '
-# for at least the musically snapped number of sections 
-# around 16 seconds
-
 # how should I ensure hitsound has a good volume given any song?
 
-# when going in reverse and unreversing back to traveling left to right, 
-# the appropriate speed_hitmarker,speed2_hitmarker, slow_hitmarker (and the measureline counterpark) etc doesn't play. it only plays 
-# when reversing from left to right to right to left.
-
 # calculate and record bpm ingame live -> return in finish menu
-
-# add perfect/great/ok text that lerps in and out as well as combo text
-# if combo, make it glow gold 
-
-# make hitmarker shake for 1 second when note goes by untouched
-
-# if wrong note is pressed, they can still press the same letter as long as the beat hasn't passed (but wrong animation still plays)  
 
 # firefly glowing around the mouse just like avesia 
 
 # remove custom level button
 
-# noki clamp animation
-
-# make the pause button the old exit button 
-
 # add title settings and level settings button
-
-# add dim glow (airbrush) to everything (how?)
-
-# for some reason, everything takes longer to load now (end of level delay, opening up program delay, playing level delay) -> why?
 
 # shouldnt be able to press on buttons through the canon/custom menu
 

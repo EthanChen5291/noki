@@ -4,10 +4,97 @@ Handles slot building, filtering, grouping, word assignment, and intensity adjus
 Public API (generate_beatmap, deduplicate_events) lives in beatmap_generator.py.
 """
 import random
-from typing import Optional
+from typing import Optional, NamedTuple
 from analysis.audio_analysis import analyze_song_intensity, get_sb_info, detect_hold_regions
 from . import constants as C
 from . import models as M
+
+
+# ==================== REPEAT GROUP PLANNING ====================
+
+class _RepeatEntry(NamedTuple):
+    group_id: int
+    iter_idx: int   # 0 = template, 1..N = repeats
+
+
+def _plan_repeat_groups(
+    measures: list[list[M.RhythmSlot]],
+    intensity_profile: Optional[M.IntensityProfile],
+    pace_score: float,
+) -> dict[int, _RepeatEntry]:
+    """
+    Pre-pass that identifies which measures belong to intentional repeat groups.
+
+    Returns a dict: measure_idx -> _RepeatEntry(group_id, iter_idx)
+    iter_idx=0 is the template (picks word normally); iter_idx>0 are echo iterations
+    that reuse the template's word with the same rhythmic slot count.
+
+    Only activates when pace_score > 0.3.  Looks for runs of ≥2 consecutive
+    above-average-intensity sections and turns them into repeat zones.
+    """
+    if pace_score <= 0.3 or not intensity_profile or not intensity_profile.section_intensities:
+        return {}
+
+    sec_intens = intensity_profile.section_intensities
+    avg = sum(sec_intens) / len(sec_intens) if sec_intens else 1.0
+    HOT = 0.55   # intensity_ratio threshold to qualify as "active"
+
+    # Build section-level ratios
+    num_sections = len(sec_intens)
+    ratios = [sec_intens[si] / (avg + 1e-6) for si in range(num_sections)]
+
+    plan: dict[int, _RepeatEntry] = {}
+    group_id = 1
+    n_measures = len(measures)
+
+    si = 0
+    while si < num_sections:
+        if ratios[si] > HOT:
+            # Find end of hot run
+            run_start = si
+            while si < num_sections and ratios[si] > HOT:
+                si += 1
+            run_end = si  # exclusive
+
+            run_len = run_end - run_start
+            if run_len < 2:
+                continue
+
+            # Consistency guard: slot counts should be similar across iterations.
+            # Sections with wildly varying density don't feel like a repeating rhythm.
+            first_mi = run_start * 4
+            _sec_slot_counts = []
+            for _si in range(run_start, min(run_end, run_start + 6)):
+                _total = sum(
+                    len(measures[_si * 4 + _off])
+                    for _off in range(4)
+                    if _si * 4 + _off < n_measures
+                )
+                _sec_slot_counts.append(_total)
+            if len(_sec_slot_counts) >= 2 and max(_sec_slot_counts) > 0:
+                _mean_sc = sum(_sec_slot_counts) / len(_sec_slot_counts)
+                _max_dev = max(abs(c - _mean_sc) for c in _sec_slot_counts)
+                if _max_dev / max(_mean_sc, 1) > 0.40:
+                    continue  # note density too inconsistent across iterations
+
+            # Number of iterations: based on slots in first measure + energy
+            n_slots = len(measures[first_mi]) if first_mi < n_measures else 4
+            avg_ratio = sum(ratios[run_start:run_end]) / run_len
+            raw = round(avg_ratio * max(n_slots, 2) * 0.6)
+            num_iters = max(2, min(8, raw, run_len))
+
+            for iter_idx in range(num_iters):
+                sec = run_start + iter_idx
+                for offset in range(4):
+                    mi = sec * 4 + offset
+                    if mi < n_measures:
+                        plan[mi] = _RepeatEntry(group_id=group_id, iter_idx=iter_idx)
+
+            group_id += 1
+        else:
+            si += 1
+
+    return plan
 
 
 # ==================== SLOT-BASED RHYTHM GENERATION ====================
@@ -231,6 +318,7 @@ def assign_words_to_slots(
     max_words_per_measure: int = 1,
     max_word_length: int = 99,
     max_silence_gap: float = float('inf'),
+    pace_score: float = 0.0,
 ) -> list[M.CharEvent]:
     """
     Assign characters to rhythm slots measure-by-measure.
@@ -250,18 +338,18 @@ def assign_words_to_slots(
     _burst_active = False  # True after placing a spam word → tighter gap next measure
     _burst_gap = max(min_word_gap * 0.35, 0.0)  # gap used between consecutive spam words
 
-    # Echo pool: recently-placed words and the intensity ratio at the time of placement.
-    # When the current section has a similar intensity, we occasionally replay one of
-    # these words to create the "repeat note" effect (with its cycling repeat colors).
-    _echo_pool: list[tuple[str, float]] = []  # [(word_text, intensity_ratio), ...]
-    _ECHO_MAX = 4
-    _ECHO_CHANCE = 0.20  # base probability of echoing in a similar-intensity section
-
     # Pre-compute average intensity once
     _avg_intensity: float = 0.0
     if intensity_profile and intensity_profile.section_intensities:
         _avg_intensity = (sum(intensity_profile.section_intensities)
                           / len(intensity_profile.section_intensities))
+
+    # Deterministic repeat groups: measures tagged with (group_id, iter_idx).
+    # iter_idx=0 = template (pick word normally, then store it);
+    # iter_idx>0 = echo (reuse the template's word with same slot count).
+    _repeat_plan = _plan_repeat_groups(measures, intensity_profile, pace_score)
+    # group_id -> (Word object, num_chars_to_place) stored when template is placed
+    _repeat_templates: dict[int, tuple[M.Word, int]] = {}
 
     # one measure grace period when starting dual sections
     grace_beats = 4
@@ -335,20 +423,29 @@ def assign_words_to_slots(
             if not candidates:
                 candidates = remaining_words
 
-            # Echo: occasionally replay a word from a section with similar intensity
-            # to create natural repeat patterns without forcing them every measure.
+            # Repeat-group logic: use stored template word for echo iterations,
+            # or pick normally (and store) for template iteration.
+            repeat_entry = _repeat_plan.get(measure_idx)
+            is_repeat_iter = False
+            repeat_group_id = 0
+            repeat_iter_num = 0
+
             word = None
-            if _echo_pool and not _burst_active:
-                similar_echoes = [
-                    w_text for w_text, i_r in _echo_pool
-                    if w_text != last_word_text and abs(i_r - intensity_ratio) < 0.25
-                ]
-                if similar_echoes and random.random() < _ECHO_CHANCE:
-                    echo_text = random.choice(similar_echoes)
-                    echo_cands = [w for w in word_bank
-                                  if w.text == echo_text and len(w.text) <= len(eligible)]
-                    if echo_cands:
-                        word = random.choice(echo_cands)
+            if repeat_entry is not None:
+                repeat_group_id = repeat_entry.group_id
+                if repeat_entry.iter_idx == 0:
+                    # Template: pick normally below, then store
+                    repeat_iter_num = 1
+                else:
+                    # Echo: reuse the stored template word if available
+                    template = _repeat_templates.get(repeat_entry.group_id)
+                    if template is not None:
+                        tmpl_word, tmpl_chars = template
+                        if len(tmpl_word.text) <= len(eligible):
+                            word = tmpl_word
+                            is_repeat_iter = True
+                            repeat_iter_num = repeat_entry.iter_idx + 1
+                    # If no template stored yet (e.g. first section was skipped), fall through
 
             if word is None:
                 word = select_word_for_measure(
@@ -366,7 +463,8 @@ def assign_words_to_slots(
             if not word or not word.text:
                 break
 
-            if word in remaining_words:
+            # Don't consume from remaining_words for echo iterations (word was already used)
+            if not is_repeat_iter and word in remaining_words:
                 remaining_words.remove(word)
 
             chars_to_place = min(len(word.text), len(eligible), C.MAX_SLOTS_PER_MEASURE)
@@ -415,21 +513,22 @@ def assign_words_to_slots(
                     is_rest=False,
                     from_left=from_left,
                     hold_duration=hold_dur,
+                    repeat_group_id=repeat_group_id,
+                    repeat_iter=repeat_iter_num,
                 ))
                 slot.is_filled = True
 
             last_word_end_time = selected_slots[chars_to_place - 1].time
             last_word_text = word.text
             last_rest_slot = selected_slots[-1]
-            _burst_active = len(word.text) == 1 and intensity_ratio >= 1.4
+            # Don't activate burst mode for repeat-group measures (keep rhythmic feel)
+            _burst_active = (repeat_group_id == 0
+                             and len(word.text) == 1
+                             and intensity_ratio >= 1.4)
 
-            # Update echo pool: track this word for potential repeat in similar sections.
-            # Only track multi-char words (single chars are spam, not repeat candidates).
-            if len(word.text) > 1:
-                _echo_pool[:] = [(t, i) for t, i in _echo_pool if t != word.text]
-                _echo_pool.append((word.text, intensity_ratio))
-                if len(_echo_pool) > _ECHO_MAX:
-                    _echo_pool.pop(0)
+            # Store template for subsequent echo iterations
+            if repeat_entry is not None and repeat_entry.iter_idx == 0:
+                _repeat_templates[repeat_group_id] = (word, chars_to_place)
 
             # remove used slots so subsequent words in this measure don't reuse them
             used_times = {s.time for s in selected_slots}

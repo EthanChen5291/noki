@@ -80,6 +80,19 @@ class WordRenderer:
         # last word we incremented the seen counter for
         self._last_counted_word: str | None = None
 
+        # --- Repeat-group animation state ---
+        # Lazily built: group_id -> max repeat_iter seen in beat_map
+        self._repeat_group_max_iter: dict[int, int] | None = None
+        # (group_id, iter_num) of the iteration currently being displayed
+        self._last_repeat_iter_key: tuple = (-1, -1)
+        # perf-counter time when the current iteration started
+        self._repeat_iter_start_t: float = -1.0
+        # Cached (group_id, iter_num) for _draw_repeat_dots
+        self._current_repeat_group_id: int = 0
+        self._current_repeat_iter_num: int = 0
+        # Word shake: start time (-1 = inactive)
+        self._repeat_word_shake_start: float = -1.0
+
     # ------------------------------------------------------------------
     # Repeat-word tracking helpers
     # ------------------------------------------------------------------
@@ -98,6 +111,15 @@ class WordRenderer:
             seen_start.add(key)
             counts[ev.word_text] = counts.get(ev.word_text, 0) + 1
         self._word_total_counts = counts
+
+    def _build_repeat_group_counts(self) -> None:
+        """Build dict of repeat_group_id -> max repeat_iter seen in beat_map."""
+        counts: dict[int, int] = {}
+        for ev in self.game.rhythm.beat_map:
+            if ev.repeat_group_id > 0:
+                gid = ev.repeat_group_id
+                counts[gid] = max(counts.get(gid, 0), ev.repeat_iter)
+        self._repeat_group_max_iter = counts
 
     def _repeat_info(self, word: str) -> tuple[int, int]:
         """Return (appearance_index, total_count) for *word*.
@@ -234,6 +256,7 @@ class WordRenderer:
         repeat_color: tuple | None = None,
         repeat_scale_bonus: float = 0.0,
         word_color: tuple | None = None,
+        x_shake: float = 0.0,
     ) -> None:
         """Draw a word with 3D carousel rotation animation."""
         g = self.game
@@ -253,7 +276,7 @@ class WordRenderer:
 
         radius = 350
         center_offset = base_char_spacing / 2
-        center_x = g.screen.get_width() // 2 + center_offset
+        center_x = g.screen.get_width() // 2 + center_offset + (x_shake if position == 'center' else 0.0)
         center_y = 180 + y_offset
 
         base_spacing = 100
@@ -381,11 +404,14 @@ class WordRenderer:
         alpha: int,
     ) -> None:
         """Draw a vertical column of dots to the right of the word showing remaining repeats."""
-        if self._word_total_counts is None:
+        group_id = self._current_repeat_group_id
+        iter_num = self._current_repeat_iter_num
+        if group_id <= 0:
             return
-        total = self._word_total_counts.get(word, 1)
-        seen  = self._word_seen_count.get(word, 1)  # already incremented
-        remaining = total - seen  # repeats still to come after this one
+        if self._repeat_group_max_iter is None:
+            self._build_repeat_group_counts()
+        total = self._repeat_group_max_iter.get(group_id, 1)
+        remaining = total - iter_num  # iterations still to come after this one
         if remaining <= 0:
             return
 
@@ -466,20 +492,41 @@ class WordRenderer:
 
         word_y_offset = g.word_current_y - g.word_normal_y
 
-        # Compute repeat styling for current word.
-        # Repeat words are styled from their FIRST appearance:
-        #   1st time: orange, full size
-        #   2nd time: blue, −3% smaller
-        #   3rd time: pink, −6% smaller  … cycling through impulse particle colors
+        # --- Repeat word styling (only for beatmap-flagged repeat groups) ---
         repeat_color = None
         repeat_scale_bonus = 0.0
-        if current_word:
-            seen, total = self._repeat_info(current_word)
-            if total > 1 and seen >= 1:
-                idx = seen - 1   # 0 = first appearance
-                repeat_color = _REPEAT_COLORS[idx % len(_REPEAT_COLORS)]
-                # Each subsequent appearance is marginally smaller (max −15%)
-                repeat_scale_bonus = -min(0.15, idx * 0.03)
+        self._current_repeat_group_id = 0
+        self._current_repeat_iter_num = 0
+
+        cur_evt_idx = g.rhythm.char_event_idx
+        cur_evt = g.rhythm.beat_map[cur_evt_idx] if cur_evt_idx < len(g.rhythm.beat_map) else None
+        if current_word and cur_evt and cur_evt.repeat_group_id > 0:
+            group_id = cur_evt.repeat_group_id
+            iter_num = cur_evt.repeat_iter
+            self._current_repeat_group_id = group_id
+            self._current_repeat_iter_num = iter_num
+            iter_key = (group_id, iter_num)
+            # Detect start of a new iteration
+            if iter_key != self._last_repeat_iter_key:
+                self._last_repeat_iter_key = iter_key
+                self._repeat_iter_start_t = current_time
+            # Scale: starts +0.30 (large) at iteration start, decays to 0 over 0.5 s
+            age = max(0.0, current_time - self._repeat_iter_start_t)
+            repeat_scale_bonus = 0.30 * max(0.0, 1.0 - age / 0.5)
+            # Color cycles per iteration: orange → blue → pink → green → …
+            idx = (iter_num - 1) % len(_REPEAT_COLORS)
+            repeat_color = _REPEAT_COLORS[idx]
+
+        # --- Word shake (triggered externally via _repeat_word_shake_start) ---
+        shake_x = 0.0
+        if self._repeat_word_shake_start >= 0:
+            shake_age = current_time - self._repeat_word_shake_start
+            if shake_age < 0.35:
+                shake_t = shake_age / 0.35
+                amplitude = 5.0 * (1.0 - shake_t) ** 2
+                shake_x = amplitude * math.sin(shake_age * 55.0)
+            else:
+                self._repeat_word_shake_start = -1.0
 
         # Note-based text colors for all three carousel positions.
         # Use full (non-truncated) word texts so ev.word_text comparisons match correctly.
@@ -503,6 +550,7 @@ class WordRenderer:
                 repeat_color=repeat_color,
                 repeat_scale_bonus=repeat_scale_bonus,
                 word_color=_cur_color,
+                x_shake=shake_x,
             )
 
         if next_word:

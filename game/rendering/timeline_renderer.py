@@ -354,7 +354,7 @@ class TimelineRenderer:
             for _ in range(3):
                 _small = pygame.transform.smoothscale(_blurred, (max(1, _gw // 5), max(1, _gh // 5)))
                 _blurred = pygame.transform.smoothscale(_small, (_gw, _gh))
-            _blurred.fill((100, 200, 255, 45), special_flags=pygame.BLEND_RGBA_MULT)
+            _blurred.fill((100, 200, 255, 9), special_flags=pygame.BLEND_RGBA_MULT)
             g.screen.blit(_blurred, (bar_x - _gp, bar_y - _gp), special_flags=pygame.BLEND_RGBA_ADD)
 
         # White border

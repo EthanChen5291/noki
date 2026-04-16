@@ -22,6 +22,7 @@ def generate_beatmap(
     dual_side_sections: Optional[list[M.DualSideSection]] = None,
     difficulty: str = "classic",
     energy_shifts: Optional[list[M.SectionEnergyShift]] = None,
+    pace_score: float = 0.0,
 ) -> list[M.CharEvent]:
     """Generate an engaging, playable beatmap using slot-based rhythm generation."""
     profile = C.DIFFICULTY_PROFILES[difficulty]
@@ -90,6 +91,7 @@ def generate_beatmap(
         max_words_per_measure=profile.max_words_per_measure,
         max_word_length=profile.max_word_length,
         max_silence_gap=_max_silence,
+        pace_score=pace_score,
     )
     #events = add_rhythm_variations(events, song)
 

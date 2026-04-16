@@ -377,8 +377,8 @@ class EffectsMixin:
             return
 
         surface = pygame.Surface((diameter, diameter), pygame.SRCALPHA)
-        gray_value = 180
-        color = (gray_value, gray_value, gray_value, wave.alpha)
+        r, g, b = wave.color
+        color = (r, g, b, wave.alpha)
         center = diameter // 2
         if wave.thickness > 0 and wave.radius > 0:
             pygame.draw.circle(surface, color, (center, center), int(wave.radius), wave.thickness)
@@ -386,6 +386,34 @@ class EffectsMixin:
         blit_x = int(wave.center_x - center)
         blit_y = int(wave.center_y - center)
         self.screen.blit(surface, (blit_x, blit_y))
+
+    def _spawn_repeat_word_particles(self, wx: int, wy: int) -> None:
+        """Spawn small white particles that fall downward from the repeat word on iteration complete."""
+        import random as _rnd
+        for _ in range(14):
+            self._hold_particles.append({
+                'x': float(wx) + _rnd.uniform(-50, 50),
+                'y': float(wy) + _rnd.uniform(-8, 8),
+                'vx': _rnd.uniform(-40, 40),
+                'vy': _rnd.uniform(20, 110),   # downward fall
+                'alpha': 220.0,
+                'radius': _rnd.uniform(1.8, 3.8),
+                'color': (255, 255, 255),
+            })
+
+    def trigger_repeat_word_shockwave(self, color_rgb: tuple, wx: int, wy: int) -> None:
+        """Spawn colored expanding rings at the word position on repeat iteration complete."""
+        for i in range(3):
+            self.shockwaves.append(M.Shockwave(
+                center_x=wx,
+                center_y=wy,
+                radius=float(i * 18),
+                max_radius=500,
+                alpha=210,
+                thickness=3,
+                speed=310 + i * 45,
+                color=color_rgb,
+            ))
 
     def trigger_note_hit_anim(self, x: int, y: int, color: str = 'red') -> None:
         """Spawn a note_hit png-sequence animation centered at (x, y)."""

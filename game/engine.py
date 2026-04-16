@@ -31,7 +31,7 @@ from .screens import SettingsPanel
 from .menu_utils import _FONT, draw_cursor
 from .rendering.effects import EffectsMixin
 from .mechanics import MechanicsMixin, BounceEvent
-from .rendering.word_renderer import WordRenderer, build_letter_glow_cache, _make_glow_surface
+from .rendering.word_renderer import WordRenderer, build_letter_glow_cache, _make_glow_surface, _NOTE_COLOR_RGB
 from .rendering.timeline_renderer import TimelineRenderer
 from .rendering.note_renderer import NoteRenderer
 from .rendering.edge_glitch import EdgeGlitchRenderer
@@ -260,6 +260,10 @@ class Game(EffectsMixin, MechanicsMixin):
         # Previous-frame values for transition detection
         self._prev_dual_active:      bool = False
         self._prev_bounce_reversed:  bool = False
+        # One-shot lock: True while a bounce-triggered animation is still playing.
+        # Prevents the per-frame energy-state _set_hm/_set_ml from overriding it.
+        self._hm_oneshot:  bool = False
+        self._ml_oneshot:  bool = False
 
         # Glow flash state: elapsed seconds since trigger, -1 = inactive
         self._glow_press_t: float = -1.0
@@ -304,7 +308,7 @@ class Game(EffectsMixin, MechanicsMixin):
                 beatmap    = generate_beatmap(
                     word_list=level.word_bank, song=song,
                     dual_side_sections=dual_secs, difficulty=level.difficulty,
-                    energy_shifts=shifts)
+                    energy_shifts=shifts, pace_score=pace.pace_score)
                 lead_in    = calculate_lead_in(song.beat_times)
                 rhythm     = RhythmManager(
                     beatmap, song.bpm, lead_in=lead_in,
@@ -446,7 +450,7 @@ class Game(EffectsMixin, MechanicsMixin):
         # --- outro deceleration ---
         self._outro_active          = False
         self._outro_start_time      = 0.0
-        self._outro_dur             = 3.0
+        self._outro_dur             = 4.0
         self._outro_start_spd       = 0.0
         self._outro_finish_started  = False   # levelfinish audio fired at 1 s mark
         self._finish_needed         = False   # set when outro completes normally
@@ -771,8 +775,27 @@ class Game(EffectsMixin, MechanicsMixin):
                 self._measureline_anim_state = state
                 self._measureline_anim_frame = 0.0
 
-        _set_hm(_energy_state)
-        _set_ml(_energy_state)
+        # --- clear one-shot locks when the protected animation has run to completion
+        _hm_fi = int(self._hitmarker_anim_frame)
+        _ml_fi = int(self._measureline_anim_frame)
+        if self._hm_oneshot:
+            _frames = (self._slow_hitmarker_frames if self._hitmarker_anim_state == 'slow_down'
+                       else self._speed_hitmarker_frames)
+            if not _frames or _hm_fi >= len(_frames):
+                self._hm_oneshot = False
+        if self._ml_oneshot:
+            _frames = (self._slow_measureline_frames if self._measureline_anim_state == 'slow_down'
+                       else self._speed_measureline_frames)
+            if not _frames or _ml_fi >= len(_frames):
+                self._ml_oneshot = False
+
+        # --- energy-state baseline (skipped while a bounce one-shot is playing)
+        # During a bounce section, keep hitmarker at 'normal' between one-shots so
+        # the high-energy speed_up state doesn't fire spuriously between bounces.
+        if not self._hm_oneshot:
+            _set_hm('normal' if self.bounce_active else _energy_state)
+        if not self._ml_oneshot:
+            _set_ml(_energy_state)
 
         # --- dual-mode entry: speed_up on hitmarker only
         # Use dual_side_visuals_active — it's what actually drives hitmarker movement
@@ -780,20 +803,23 @@ class Game(EffectsMixin, MechanicsMixin):
             _set_hm('speed_up')
 
         # --- bounce direction change: affect both hitmarker + measureline
-        # going left → right to right → left (reversed becomes True): slow_hitmarker
-        # going right → left back to left → right (reversed becomes False): speed_hitmarker
-        # Force-reset state+frame directly so the animation always restarts, even when
-        # the energy-shift state has already advanced the frame counter to the same state.
+        # L→R switches to R→L (reversed becomes True)  → slow_hitmarker (deceleration)
+        # R→L switches back to L→R (reversed becomes False) → speed_hitmarker (acceleration)
+        # Force-reset state+frame and lock from energy-state override until animation ends.
         if self.bounce_active and self.bounce_reversed and not _was_bounce_reversed:
             self._hitmarker_anim_state = 'slow_down'
             self._hitmarker_anim_frame = 0.0
             self._measureline_anim_state = 'slow_down'
             self._measureline_anim_frame = 0.0
+            self._hm_oneshot = True
+            self._ml_oneshot = True
         elif _was_bounce_reversed and not self.bounce_reversed:
             self._hitmarker_anim_state = 'speed_up'
             self._hitmarker_anim_frame = 0.0
             self._measureline_anim_state = 'speed_up'
             self._measureline_anim_frame = 0.0
+            self._hm_oneshot = True
+            self._ml_oneshot = True
 
         # --- advance frame counters (stop at end — no looping)
         self._hitmarker_anim_frame   += (14.0 if self._hitmarker_anim_state   in ('speed_up', 'speed_up_mild') else 12.0 if self._hitmarker_anim_state   == 'slow_down' else 0.0) * dt
@@ -955,6 +981,22 @@ class Game(EffectsMixin, MechanicsMixin):
 
                     self.score = self.rhythm.get_score()
                     self.used_current_char = True
+
+                    # Repeat-word iteration complete: fire colored shockwave, shake, and particles
+                    if result.get('is_word_complete'):
+                        _done_evt = (self.rhythm.beat_map[current_char_idx]
+                                     if current_char_idx < len(self.rhythm.beat_map) else None)
+                        if _done_evt and _done_evt.repeat_group_id:
+                            _rw_color_name = self.note_renderer._note_color_map.get(
+                                _done_evt.timestamp, 'blue')
+                            _rw_color_rgb = _NOTE_COLOR_RGB.get(_rw_color_name, (142, 204, 255))
+                            _rw_x = self.screen.get_width() // 2
+                            _rw_y = 180 + int(self.word_current_y - self.word_normal_y)
+                            self.trigger_repeat_word_shockwave(_rw_color_rgb, _rw_x, _rw_y)
+                            # Tiny word shake (current_time is song-relative, matches word_renderer)
+                            self.word_renderer._repeat_word_shake_start = current_time
+                            # White particles falling from the word
+                            self._spawn_repeat_word_particles(_rw_x, _rw_y)
                 else:
                     judgment = result['judgment']
                     if judgment == 'wrong':
