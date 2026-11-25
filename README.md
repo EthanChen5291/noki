@@ -1,9 +1,3 @@
-<div align="center">
-
-# Noki
-
-</div>
-
 <table>
   <tr>
     <td width="50%"><img src="assets/images/noki_preview.png" alt="Noki in play: words falling on the beat"></td>
