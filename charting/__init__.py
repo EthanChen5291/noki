@@ -3,9 +3,8 @@ charting — turns a song and a word list into a chart (a list of CharEvents),
 deterministically, with a disk cache keyed by song, words, difficulty and
 generator version.
 
-``build_chart`` is the only entry point the game uses.  Today it runs the
-Skeleton & Cells engine (``charting.engine``) and falls back to the legacy
-slot builder if the engine raises, so a bad chart never blocks play.
+``build_chart`` is the only entry point the game uses.  It runs the
+Skeleton & Cells engine (``charting.engine``).
 """
 from __future__ import annotations
 

@@ -1,6 +1,22 @@
-venv/
+# Python
 __pycache__/
+*.py[cod]
+venv/
+.venv/
+.pytest_cache/
+*.egg-info/
 *.dylib
 *.so
-*.pyc
-venv/
+
+# Web build
+web/node_modules/
+web/dist/
+
+# Local save data (the game recreates it)
+assets/scores.json
+
+# OS and editors
+.DS_Store
+.vscode/
+.idea/
+.claude/

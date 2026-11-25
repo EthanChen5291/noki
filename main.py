@@ -47,115 +47,6 @@ def _show_loading_screen(screen, clock, duration=0.35):
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 return
-            
-# TMW---
-
-# while noki in middle, zoom camera in for zoom-in mode -> it hits and smooshes noki's face and stays in zoom-in mode
-
-# BLITZ mode: on climax measures, have user type a full sentence with a timer. there are multiple sentences with their own timer.
-
-# make the speed_hitmarker and slow_hitmarker animations (when played) very slightly taller and very slightly skinnier
-
-# plan for repeat words 
-
-# remove the hitsound whenever hold note finishes and the note is released. only play hitsound when initial press on hold note
-
-# decrease drag on mouse but make the tail a bit sharper
-
-# when leaving level, i just see a flash of the background (the bg petals) before the screen turns black to load for a few seconds. 
-# I want the actual loading screen (the two petals petal1 petal2) rotating for however long is needed to load the main menu
-
-# decrease glow of progress bar by 80% (nothing's changeed with previous alpha changes)
-
-# -------
-
-# make the hitmarker lerp a bit bigger upon note press correctly
-
-# EFFECTS BRAINSTORMING
-
-# REPEAT WORDS
-
-# how should I ensure hitsound has a good volume given any song?
-
-# calculate and record bpm ingame live -> return in finish menu
-
-# firefly glowing around the mouse just like avesia 
-
-# remove custom level button
-
-# add title settings and level settings button
-
-# shouldnt be able to press on buttons through the canon/custom menu
-
-# noki_bop slightly lagging in loop?
-
-# when scrolling down, begin lerp cropping the bottom of canon / custom tab up by up to 10% (not moving it all, just taking 3% off the bottom and adjusting text as needed)
-# and move the horizontal line in which song names and stuff begin disappearing after scrolling down to the new point (where the bottom of canon/custom tab is)
-# when scrolling back up and it reaches near the top, it begins lerp stretching again to reverse
-
-# loading animation shouldn't completely stop when reaching the top -> only reach a pretty slow speed
-
-# moreover make the impulse 20% more colored so that the pink, blue, and yellow (new one) colored ones that alternate between are more noticeable.
-
-# end animation + remove word at end of level when typed
-
-# support for different time signatures?
-
-# rainbow bubble themed particles / outline on balls during some time?
-
-# dual mode -> speed up or notes shows up at the end on the left and teleports to the right because dual mode ends.
-
-# make screen "hits" where camera beats every other beat
-
-# recreate speedup/slowdown/bounce mode/dual mode art
-
-#speed up + bounce mode causes the timeline to go in the opposite direction (like timeline is going left and particles are coming from right)
-
-# when in bounce mode and going in reverse, extend the timeline all the way to the left so they can see dots earlier before it comes
-
-#make the .mov bop file png loop for transparency
-
-# pink/light blue/ bubble colorset
-# bounce mode section not having notes at all during semi-quiet sections (unsure why)
-# can't scroll down in canon level menu with scroll bar
-
-# whenever the session slows down at the end of the level, make sure the zoom stops zooming out after a bit (so it doesnt look like the timeline is being crunched into the hitmarker)
-
-# animated timeline 
-# animated circles + spin explode animation when pressed
-# red circle animation for wrong
-
-# cat hurt animation (red outline)
-
-
-
-# DOUBLE TIMELINE mode timeline splits into two. has 1 second animation of the timeline splitting into two vertically (where one goes up and one goes down) so their vertical center was where the (default mode timeline was). there should be no notes for one measure during entrance just like dual mode
-# - first timeline supports left side of keyboard, second timeline right side
-# - during double timeline mode, movement is distinct. like it's not just oh you can type normally but 
-# have to look at two timelines:
-# - VERS 1: double timeline where one timeline is harmony (holding letters in 1-2 letter words for long time 
-# while other timeline (otherside of keyboard) types words with letters only on that side). this means that two separate word lists going on for both 
-# should alternate between timeslines (like timeline 1 does holding then timeline 2 does holding with word list adjusted 
-# as appropriate to only include letters on the "not holding" side for the words)
-# - VERS 2: same idea as VERS 1 except no holding. full words show up on each timeline (so not split letters of the same word list)
-# where each word only has letters corresponding to its respective side of the keyboard
-
-# SPEAK MODE: 
-# uses AI to say the word (girl voice) -> noki meow animation.
-# # user has word_duration amount of time to type the entire word, no beats just type it in x time.
-# SYMBOL: volume symbol on timeline
-# this leads timeline to fade away and noki to lerp to center and camera to zoom in on noki (noki bop 2 animation).
-# when it's time for word, ensure word is at least 3 letters long and noki does noki_meow animation. 
-# WAIT REAL ANIMATION: they speak, and when it's typed correctly, noki meows and gets rid of red spots crawling towards him (shockwavve)
-# this repeats. speak mode has a cooldown AND SHOULD ONLY WORK WITH PARTS OF THE SONG (what parts?) and should last at least 3-4 measures (until the audio appears to "change section") 
-
-# ADD 2 MORE CATS, each with their own hitmarker skin: 
-# base cat (current cat) -> red skin. THREE LIVES, normal points
-# female cat (white, slender, green eyes) -> (green hitmarker). TWO LIVES, 1.25x points multiplier
-# chunk cat (nods head every 2 beats). FIVE LIVES, 0.75x points multipler, slows the song down 
-
-# cat selection mode in main title screen with button under the cat
-# incorporate the two cats into beginning animation
 
 CANON_PATH = "assets/audios/canon/"
 CUSTOM_PATH = "assets/audios/custom/"
@@ -177,7 +68,6 @@ SONG_NAMES = [
 ]
 
 WORD_BANK_1 = ["cat", "test", "me", "rhythm", "beat", "fish", "moon", "derp", "noki", "yeah"]
-WORD_BANK_2 = ["cat", "here", "me", "chosen", "beat", "hope", "soul", "true", "love", "stay"]
 
 
 def main():
@@ -216,7 +106,7 @@ def main():
         )
 
         # ==========================TO DO LIST
-        
+
 
         # make the mouse a circle (like osu?)
 
@@ -228,9 +118,9 @@ def main():
         # hitmarker is gray and skinny and then becomes the heart's color and becomes thicker and glows.
 
         # upon bounce, make the markers bend animation. same for speedups and slowdowns to a certain extent.
-        
+
         # for repeat notes, make the word (like the word text itself) orange the first time and get marginally larger and swap colors between the colors of the impulse particles every time that word passes
-    
+
         # remove signs 
 
         # add ghost notes?
@@ -258,7 +148,7 @@ def main():
         # for complex/faster/more pacey songs/sections, just add the blue stuff
 
         # on finish, add some finish thing for 2-3 seconds the open 'finish' menu
-        
+
         # add some gradients in the background,
         # add PRESS note animation -> it fades into mist
 
